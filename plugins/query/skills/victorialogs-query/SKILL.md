@@ -1,16 +1,21 @@
 ---
 name: victorialogs-query
 description: >
-  Query VictoriaLogs via curl. Use when searching logs with LogsQL, running log stats queries,
+  Query VictoriaLogs via curl or MCP. Use when searching logs with LogsQL, running log stats queries,
   discovering log fields/streams, analyzing log hit patterns, or exploring log facets.
   Triggers on: log queries, LogsQL, log search, log stats, field discovery, stream discovery,
   log facets, log hits, log field values.
-allowed-tools: Bash(curl:*), Bash(jq:*), Bash(date:*)
+compatibility: OpenCode, Claude Code
 ---
 
 # VictoriaLogs Query
 
-Query VictoriaLogs HTTP API directly via curl. Covers log search, stats queries, field/stream discovery, hits analysis, and facets.
+Query VictoriaLogs HTTP API via curl or an MCP server. Covers log search, stats queries, field/stream discovery, hits analysis, and facets.
+
+## Agent compatibility
+
+This skill works with OpenCode (`@victorialogs-query`) and Claude Code.
+If a VictoriaLogs MCP server is available and the requested operation is covered by a permitted tool, use the MCP tool first. Otherwise fall back to HTTP/curl against `$VM_LOGS_URL`. Do not switch transports because a query returns no log lines.
 
 ## Environment
 

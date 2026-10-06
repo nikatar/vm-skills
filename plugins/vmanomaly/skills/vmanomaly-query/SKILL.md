@@ -2,10 +2,15 @@
 name: vmanomaly-query
 description: >
   Operate VictoriaMetrics Anomaly Detection (vmanomaly) through its HTTP API. Use when checking health, versions, persisted-state compatibility, self-monitoring metrics, available models, model schemas, server queries, time-series characteristics, shared autotune, or asynchronous detection tasks. Also use for generating and validating vmanomaly configuration or alert-rule YAML. Triggers on vmanomaly API, anomaly tasks, model validation, model schema, compatibility, Temporal Envelope, time-series profiling, and vmanomaly autotune.
-allowed-tools: Bash(curl:*), Bash(jq:*)
+compatibility: OpenCode, Claude Code
 ---
 
 # vmanomaly API
+
+## Agent compatibility
+
+This skill works with OpenCode (`@vmanomaly-query`) and Claude Code.
+Use MCP tools when available and permitted, otherwise fall back to HTTP/curl against `$VM_ANOMALY_URL`.
 
 Operate a running vmanomaly v1.30+ instance through bounded, explicit API calls. Prefer live schemas and server responses over static assumptions.
 
@@ -88,7 +93,7 @@ curl -q --config "$VM_CURL_CONFIG" -s \
   "$VM_ANOMALY_URL/api/v1/config/validate" | jq .
 ```
 
-Validation does not apply or reload a configuration.
+Validation does not apply or reload a configuration. The `/api/v1/config/validate` endpoint is read-only with respect to the running deployment, but validation of user-provided YAML may still be considered a write against the user's intent — confirm the config before submitting it.
 
 ## Inspect the running server
 
@@ -158,14 +163,16 @@ jq -n --arg query "$QUERY" --arg timezone "$TIMEZONE" '{
   "$VM_ANOMALY_URL/api/v1/autotune/tasks" | jq .
 ```
 
-Tell the user the trial/time budget before creating the task. Poll one task sequentially:
+Poll one task sequentially:
 
 ```bash
 curl -q --config "$VM_CURL_CONFIG" -s \
   "$VM_ANOMALY_URL/api/v1/autotune/tasks/<task_id>" | jq .
 ```
 
-Treat `done`, `error`, and `canceled` as terminal. On `done`, apply `result_data.data.modelConfig` directly, validate it, and test it. Do not replace this concrete one-time recommendation with `class: auto`; the deployable auto wrapper has a different lifecycle. Business policies in this result remain model-spec fields for task/UI compatibility; move them to the attached query only when constructing a v1.30.2+ deployment configuration. Use DELETE only when the user asks to cancel:
+Treat `done`, `error`, and `canceled` as terminal. On `done`, apply `result_data.data.modelConfig` directly, validate it, and test it. Do not replace this concrete one-time recommendation with `class: auto`; the deployable auto wrapper has a different lifecycle. Business policies in this result remain model-spec fields for task/UI compatibility; move them to the attached query only when constructing a v1.30.2+ deployment configuration.
+
+Autotune and detection tasks consume server resources. Tell the user the trial/time budget before creating a task. Use DELETE only when the user asks to cancel:
 
 ```bash
 curl -q --config "$VM_CURL_CONFIG" -s \

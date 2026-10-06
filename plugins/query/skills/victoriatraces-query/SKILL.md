@@ -1,16 +1,21 @@
 ---
 name: victoriatraces-query
 description: >
-  Query VictoriaTraces via curl using the Jaeger-compatible API. Use when discovering traced services
+  Query VictoriaTraces via curl or MCP using the Jaeger-compatible API. Use when discovering traced services
   and operations, searching traces by service/operation/duration/tags, retrieving traces by ID,
   or mapping service dependencies. Triggers on: trace queries, span search, trace ID lookup,
   service discovery, operation discovery, service dependencies, distributed tracing, Jaeger API.
-allowed-tools: Bash(curl:*), Bash(jq:*), Bash(date:*)
+compatibility: OpenCode, Claude Code
 ---
 
 # VictoriaTraces Query
 
-Query VictoriaTraces Jaeger-compatible HTTP API directly via curl. Covers service/operation discovery, trace search, trace retrieval by ID, and dependency mapping.
+Query VictoriaTraces Jaeger-compatible HTTP API via curl or an MCP server. Covers service/operation discovery, trace search, trace retrieval by ID, and dependency mapping.
+
+## Agent compatibility
+
+This skill works with OpenCode (`@victoriatraces-query`) and Claude Code.
+If a VictoriaTraces MCP server is available and the requested operation is covered by a permitted tool, use the MCP tool first. Otherwise fall back to HTTP/curl against `$VM_TRACES_URL`. Do not switch transports just because a service has no traces.
 
 ## Environment
 

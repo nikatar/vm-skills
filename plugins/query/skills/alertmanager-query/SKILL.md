@@ -4,12 +4,18 @@ description: >
   Query AlertManager via curl using the v2 API. Use when listing active/silenced alerts, creating/managing silences,
   or checking alert inhibition state. Triggers on: alertmanager, silences, silence alerts, alert filters,
   alert inhibition, alertmanager API, create silence, delete silence.
-allowed-tools: Bash(curl:*), Bash(jq:*), Bash(date:*)
+compatibility: OpenCode, Claude Code
 ---
 
 # AlertManager Query (API v2)
 
 Query Prometheus-compatible AlertManager HTTP API v2 directly via curl. Covers alert listing with filters, silence management (list, create, get, delete), and alert state inspection.
+
+## Agent compatibility
+
+This skill works with OpenCode (`@alertmanager-query`) and Claude Code.
+Use whichever transport is available: direct HTTP/curl (always), or MCP when an AlertManager-compatible
+server exposes the matching tools. Prefer MCP only when it targets the same AlertManager instance.
 
 ## Availability Warning
 
@@ -105,13 +111,15 @@ curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -s \
     ],
     "startsAt": "2026-03-07T00:00:00Z",
     "endsAt": "2026-03-08T00:00:00Z",
-    "createdBy": "claude",
+    "createdBy": "ai-agent",
     "comment": "Maintenance window"
   }' \
   "$VM_ALERTMANAGER_URL/api/v2/silences" | jq .
 ```
 
 Returns `{"silenceID": "uuid-here"}`. Matcher fields: `name` (label name), `value` (match value), `isRegex` (bool), `isEqual` (bool — false for negative match). Times in RFC3339.
+
+Use a meaningful `createdBy` value such as your own username, the agent identity, or a runbook link instead of the literal example value. Mutations require explicit user approval.
 
 ### Delete (Expire) Silence
 
@@ -161,7 +169,7 @@ curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -s \
   -d "$(jq -n --arg start "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg end "$(date -u -d '+2 hours' +%Y-%m-%dT%H:%M:%SZ)" \
     '{matchers: [{name: "alertname", value: $ARGS.named.alert, isRegex: false, isEqual: true}],
-      startsAt: $start, endsAt: $end, createdBy: "claude", comment: $ARGS.named.reason}' \
+      startsAt: $start, endsAt: $end, createdBy: "ai-agent", comment: $ARGS.named.reason}' \
     --arg alert "AlertName" --arg reason "Investigation in progress")" \
   "$VM_ALERTMANAGER_URL/api/v2/silences" | jq .
 
@@ -186,4 +194,5 @@ echo "VM_CURL_CONFIG: ${VM_CURL_CONFIG:-(unset - no auth)}"
 - DELETE returns empty body on success (HTTP 200)
 - `filter` parameter uses PromQL-style matchers: `alertname="Foo"`, `severity=~"critical|warning"`
 - AlertManager may be down — always have a fallback plan using `$VM_METRICS_URL/api/v1/alerts`
+- Creating, updating, or expiring silences is a mutation. Get explicit user approval before running these commands.
 - For full endpoint details, parameters, and response formats, see `references/api-reference.md`

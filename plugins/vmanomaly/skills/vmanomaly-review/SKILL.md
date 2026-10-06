@@ -2,10 +2,15 @@
 name: vmanomaly-review
 description: >
   Audit an existing VictoriaMetrics vmanomaly configuration against runtime capabilities and real data. Use when reviewing model-data fit, scheduler cadence, persisted-state compatibility, cold start, excessive detections, missing anomalies, output cardinality, or upgrade readiness. Trigger on vmanomaly config review, false-positive investigation, detection quality, model effectiveness, compatibility, and "is my anomaly detection working?" Use vmanomaly-config instead when building a new configuration from scratch.
-allowed-tools: Bash(curl:*), Bash(jq:*), Read
+compatibility: OpenCode, Claude Code
 ---
 
 # vmanomaly configuration reviewer
+
+## Agent compatibility
+
+This skill works with OpenCode (`@vmanomaly-review`) and Claude Code.
+Use MCP tools when available and permitted, otherwise fall back to HTTP/curl against `$VM_ANOMALY_URL`.
 
 Review a running or proposed vmanomaly v1.30+ configuration without mutating it. Separate facts, measured evidence, and hypotheses. A static rule may be a better outcome than an ML model.
 
@@ -63,7 +68,7 @@ curl -q --config "$VM_CURL_CONFIG" -sG \
 
 ### 3. Perform static validation
 
-Validate the full YAML:
+Validate the full YAML after confirming the configuration with the user:
 
 ```bash
 CONFIG_PATH='<user-supplied-yaml-path>'
@@ -71,6 +76,8 @@ curl -q --config "$VM_CURL_CONFIG" -s \
   -X POST -H 'Content-Type: application/yaml' --data-binary "@$CONFIG_PATH" \
   "$VM_ANOMALY_URL/api/v1/config/validate" | jq .
 ```
+
+Validation is read-only against the running deployment, but it still consumes server resources.
 
 Also inspect:
 
@@ -167,7 +174,7 @@ Poll sequentially until `done`, `error`, or `canceled`. Use `exact:true` for cau
 
 For an exploratory online task, a `fit_every` longer than the inference range preserves a single continuous state. This is not automatically the right production cadence.
 
-Do not create duplicates while a task is running. Task creation and config validation are read-only with respect to deployment; applying changes is not.
+Do not create duplicates while a task is running. Task creation and config validation consume server resources; applying changes is not.
 
 ### 7. Evaluate evidence correctly
 
@@ -218,8 +225,8 @@ These integrations improve evidence but are not prerequisites; continue using vm
 
 ## Safety
 
-- Do not apply configs, create persistent rules, purge state, or cancel another user's task without explicit approval.
-- Bound time windows, series limits, and task concurrency.
+- Do not apply configs, create persistent rules, purge state, cancel another user's task, or create autotune/detection tasks without explicit approval.
+- Bound time windows, series limits, trial counts, and task concurrency.
 - Preserve exact queries, timestamps, and errors in the report, but redact credentials.
 
 ### Incident links

@@ -1,7 +1,14 @@
 # VictoriaMetrics skills
 
-A collection of agent skills for interacting with the VictoriaMetrics ecosystem.
+A collection of portable [Agent Skills](https://agentskills.io/) for interacting with the VictoriaMetrics ecosystem.
 These skills help AI agents and automation tools understand, operate, and troubleshoot VictoriaMetrics products such as metrics, logs, and traces storage.
+
+They follow the open [Agent Skills](https://agentskills.io/) format and are intended for:
+
+- **Claude Code** (via the Claude plugin marketplace or `npx skills`)
+- **OpenCode** (via `@skill-id` or `.opencode/skills`)
+
+> The skills use the same `SKILL.md` format for any Agent Skills-compatible agent. Invocation and configuration differ per agent.
 
 ## Available Plugins
 
@@ -57,6 +64,21 @@ Install plugins:
 /plugin install docs@victoriametrics-tools # Look up flags, API paths and query constructs in the published docs
 ```
 
+### For OpenCode
+
+Skills are discovered from `.opencode/skills`, `.agents/skills`, `.claude/skills`, or the global `~/.config/opencode/skills` directory.
+
+Example: symlink or copy the skill directories into `~/.agents/skills`:
+
+```bash
+mkdir -p ~/.agents/skills
+for d in plugins/*/skills/*/; do
+  ln -sf "$(pwd)/$d" "$HOME/.agents/skills/$(basename "$d")"
+done
+```
+
+Then mention a skill by ID, e.g. `@victoriametrics-query`.
+
 ## Skills
 
 ### Query plugin
@@ -96,7 +118,9 @@ Each vmanomaly skill is independently installable. When query or diagnostics ski
 available, the vmanomaly workflows can use them for metric/log discovery, cardinality checks,
 existing-alert review, and multi-signal incident correlation.
 
-## Usage
+## Usage by agent
+
+### Claude Code
 
 Once installed, skills are available as slash commands and are also triggered automatically when Claude detects a matching request:
 
@@ -116,6 +140,16 @@ Once installed, skills are available as slash commands and are also triggered au
 /docs:victoriametrics-docs                         - check a flag, an API path or a query construct against the docs
 ```
 
+### OpenCode
+
+Mention the skill ID with `@`:
+
+```
+@victoriametrics-query What is the request rate for my-api over the last 6 hours?
+@investigating-with-observability Pod X is crash looping — investigate
+@victoriametrics-docs Is there a flag to change the retention period?
+```
+
 **Example prompts that trigger skills:**
 
 - "What alerts are currently firing?" → `alertmanager-query`
@@ -131,6 +165,26 @@ Once installed, skills are available as slash commands and are also triggered au
 - "Check whether my persisted vmanomaly state is compatible with v1.30" → `vmanomaly-query`
 - "Review why this anomaly model produces too many detections" → `vmanomaly-review`
 - "Is there a flag to change the retention period?" → `victoriametrics-docs`
+
+## Transport: MCP first, HTTP fallback
+
+The skills can use either **MCP servers** (when available and permitted) or direct **HTTP** via `curl`.
+
+| Priority | When to use |
+|----------|-------------|
+| **1. MCP** | A permitted MCP tool covers the exact operation and points at the right environment/tenant. |
+| **2. HTTP** | No MCP tool covers the operation, or MCP is unavailable, and the matching `VM_*_URL` is configured. |
+| **3. Stop and report** | Neither transport is available for the operation. |
+
+Rules:
+
+- Choose the transport **per operation**, not once for the whole skill.
+- When both transports are available for the same operation, prefer MCP.
+- An empty result is a valid result — do not switch transports just because a query returns no data.
+- A permission denial is not a reason to fall back to HTTP; stop and explain.
+- After an error or timeout on a mutating call (silence, reload, task creation), do not blindly retry with the other transport. First confirm whether the operation already executed.
+- When mixing transports, make sure they target the **same environment, instance, and tenant**.
+- `VM_*_URL` being unset does not mean the service is absent if an MCP server is connected.
 
 ## Environment Variables
 
@@ -201,3 +255,32 @@ To migrate:
    ```
 
 3. If you never set `VM_AUTH_HEADER` (unauthenticated local instances), no action is needed.
+
+## Subagents and delegation
+
+Some skills (`investigating-with-observability`, `victoriametrics-cardinality-analysis`) can run
+discovery work in parallel. They describe the work as independent tasks and can use any supported
+delegation mechanism:
+
+- Claude Code: `Agent` tool calls
+- OpenCode: `subagent` tool calls
+
+If the current agent does not support delegation, or delegation is not permitted, the same steps
+must be executed **sequentially** in the main agent. The skills include fallback instructions for
+that case.
+
+Each helper must be given the same context explicitly:
+
+- task scope and limits,
+- target environment, endpoint, and tenant,
+- time range,
+- transport to use (MCP or HTTP),
+- output format,
+- the relevant agent prompt file content.
+
+## Safety notes
+
+- **Read-only diagnostics and config generation are separate from mutations.** Do not apply configs, reload agents, create persistent alert rules, purge state, expire silences, or cancel another user's task without explicit approval.
+- **MCP access is not a substitute for permissions.** Agent-level permission rules (OpenCode `permissions`, Claude approval modes) still govern what tools can actually do.
+- **The `allowed-tools` frontmatter is a hint, not a security boundary.** Actual enforcement depends on the agent's own permission system.
+- **Metric cleanup is suggestive.** A metric that appears unused may still be needed by dashboards, recording rules, or seasonal reports. Cross-check before recommending deletion.

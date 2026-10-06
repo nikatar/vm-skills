@@ -12,14 +12,18 @@ description: >
   (5) the user mentions vmselect trace, trace=1, or query performance debugging with
   VictoriaMetrics. This skill provides a structured report template that ensures consistent,
   thorough analysis — do not attempt to analyze VM traces without it.
-argument-hint: trace.json
-disable-model-invocation: true
-allowed-tools: Bash(python3:*), Read
+compatibility: OpenCode, Claude Code
 ---
 
 # VictoriaMetrics Query Trace Analyzer
 
 You are analyzing a VictoriaMetrics query trace — a JSON tree that records every step of a PromQL query execution. Your goal is to read this tree, understand what happened, and produce a clear performance report with actionable recommendations.
+
+## Agent compatibility
+
+This skill works with OpenCode (`@vm-trace-analyzer`) and Claude Code.
+It only requires reading the provided trace file and running bundled Python scripts. No MCP or HTTP
+backend is needed, though `trace=1` may have been produced by a VictoriaMetrics MCP `query`/`query_range` call.
 
 ## Background
 

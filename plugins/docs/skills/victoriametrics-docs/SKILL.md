@@ -8,10 +8,15 @@ description: >
   on: command-line flag, CLI flag, what flag, flag does, API path, HTTP endpoint, does this
   endpoint exist, MetricsQL function, LogsQL pipe, LogsQL filter, operator flag, is this
   documented, where are the docs, VictoriaMetrics documentation.
-allowed-tools: Bash(python3:*), Read
+compatibility: OpenCode, Claude Code
 ---
 
 # VictoriaMetrics documentation lookup
+
+## Agent compatibility
+
+This skill works with OpenCode (`@victoriametrics-docs`) and Claude Code.
+It only needs the bundled Python script and read access; no backend environment variables are required.
 
 Confirm a flag, an API path or a query construct against the published documentation before
 naming it. An invented flag reads exactly like a real one, so a reader cannot tell the

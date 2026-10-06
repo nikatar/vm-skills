@@ -7,7 +7,7 @@ description: >
   series reduction, unused metrics, high cardinality labels, TSDB optimization, storage cost reduction,
   metric cleanup, too many time series, or wants to reduce cardinality. Also trigger when discussing
   relabeling strategies, streaming aggregation opportunities, or "which metrics can we drop".
-allowed-tools: Bash(curl:*), Bash(jq:*), Bash(date:*)
+compatibility: OpenCode, Claude Code
 ---
 
 # VictoriaMetrics Cardinality Analysis
@@ -15,6 +15,11 @@ allowed-tools: Bash(curl:*), Bash(jq:*), Bash(date:*)
 Systematic cardinality analysis for VictoriaMetrics. Collects TSDB status, metric usage stats, and label
 value patterns, then produces a structured report with specific relabeling and stream aggregation configs
 the user can apply directly.
+
+## Agent compatibility
+
+This skill works with OpenCode (`@victoriametrics-cardinality-analysis`) and Claude Code.
+Phase 1 uses parallel helper tasks that may run as subagents when the agent supports delegation (OpenCode `subagent`, Claude `Agent`); otherwise run them sequentially. Use MCP tools when available and permitted, otherwise fall back to HTTP/curl.
 
 The goal is to find the highest-impact optimization opportunities — metrics nobody queries, labels that
 explode cardinality for no monitoring value, and patterns that indicate data hygiene problems (error
@@ -37,17 +42,18 @@ Uses the same env vars as the `victoriametrics-query` skill:
 
 ### Phase 1: Data Collection
 
-Spawn 3 subagents in a **single response** to collect data in parallel. Each subagent prompt must
-include the curl auth pattern and environment variable references above.
+Spawn 3 helper tasks in a **single response** to collect data in parallel when the agent supports
+delegation; otherwise run them sequentially. Each helper prompt must include the curl auth pattern,
+transport choice (MCP or HTTP), and environment variable references above.
 
 If the user specified a scope (job, namespace, metric prefix), pass it as `match[]` parameter to
 TSDB status queries and as series selectors to label queries.
 
 ---
 
-#### Subagent 1: TSDB Overview
+#### Helper 1: TSDB Overview
 
-**Agent name**: `cardinality-tsdb` | **Description**: "Collect TSDB cardinality stats"
+**Role name**: `cardinality-tsdb` | **Description**: "Collect TSDB cardinality stats"
 
 **Query 1 — Yesterday's series (captures recently churned series):**
 
@@ -81,9 +87,9 @@ done
 
 ---
 
-#### Subagent 2: Metric Usage Stats
+#### Helper 2: Metric Usage Stats
 
-**Agent name**: `cardinality-usage` | **Description**: "Find unused and rarely-queried metrics"
+**Role name**: `cardinality-usage` | **Description**: "Find unused and rarely-queried metrics"
 
 **Query 1 — Never-queried metrics:**
 
@@ -118,19 +124,19 @@ curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -s \
 ```
 
 Extract metric names from rule queries. Any "unused" metric that appears in an alert/recording rule
-is NOT safe to drop — it's queried indirectly.
+is a candidate only for rule review — do not recommend dropping it without confirming the rule is obsolete.
 
 **Return**: Unused metrics with cross-reference against alert rules. Flag each as:
 
-- **safe to drop**: never queried AND not in any rule
+- **candidate**: never queried AND not in any rule; still verify with dashboards/SLIs before dropping
 - **used by rules only**: never queried by dashboards but referenced in rules — verify intent
 - **rarely used**: low query count, may be accessed infrequently (e.g., monthly reports)
 
 ---
 
-#### Subagent 3: Label Pattern Inspection
+#### Helper 3: Label Pattern Inspection
 
-**Agent name**: `cardinality-labels` | **Description**: "Inspect label values for problematic patterns"
+**Role name**: `cardinality-labels` | **Description**: Inspect label values for problematic patterns
 
 All data comes from the TSDB status endpoint — do NOT use `/api/v1/labels` or `/api/v1/label/.../values`.
 
@@ -187,7 +193,7 @@ Shows which specific `label=value` pairs contribute the most series.
 
 ### Phase 2: Analysis
 
-After all subagents return, compile and classify findings. This is the analytical core — apply
+After all helpers return, compile and classify findings. This is the analytical core — apply
 judgment, not mechanical filtering.
 
 #### Category 1: Unused Metrics (Quick Wins)
@@ -359,6 +365,9 @@ metric_relabel_configs:
 Adapt the template to actual findings — omit sections with no findings, expand sections
 with significant findings.
 
+Every remediation is a **recommendation only**. Do not apply configs, reload agents, or drop data
+without explicit user approval.
+
 ---
 
 ## Remediation Reference
@@ -456,7 +465,7 @@ gauges produces nonsensical running sums.
 
 | Mistake | Fix |
 |---------|-----|
-| Dropping a metric used by alerts | Always cross-check `/api/v1/rules` before dropping |
+| Dropping a metric used by alerts | Cross-check `/api/v1/rules` and dashboards/SLIs before dropping |
 | `drop_input: true` without testing | Verify aggregation output matches expectations first |
 | Stream aggregating gauges with `total` | Use `last`, `avg`, or `sum_samples` for gauges |
 | Forgetting `keep_metric_names: true` | Without it, output gets long auto-generated suffix |

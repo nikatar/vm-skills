@@ -126,7 +126,7 @@ List all silences.
     "status": {"state": "active"},
     "updatedAt": "2026-03-07T10:00:00.000Z",
     "comment": "Maintenance window",
-    "createdBy": "claude",
+    "createdBy": "ai-agent",
     "endsAt": "2026-03-08T00:00:00.000Z",
     "startsAt": "2026-03-07T00:00:00.000Z",
     "matchers": [
@@ -175,7 +175,7 @@ Create a new silence.
   ],
   "startsAt": "2026-03-07T00:00:00Z",
   "endsAt": "2026-03-08T00:00:00Z",
-  "createdBy": "claude",
+  "createdBy": "ai-agent",
   "comment": "Maintenance window"
 }
 ```
@@ -213,7 +213,7 @@ curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -s \
     "matchers": [{"name": "alertname", "value": "HighMemory", "isRegex": false, "isEqual": true}],
     "startsAt": "2026-03-07T10:00:00Z",
     "endsAt": "2026-03-07T12:00:00Z",
-    "createdBy": "claude",
+    "createdBy": "ai-agent",
     "comment": "Investigating memory issue"
   }' \
   "$VM_ALERTMANAGER_URL/api/v2/silences" | jq .
@@ -225,7 +225,7 @@ curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -s \
     "matchers": [{"name": "alertname", "value": "High.*", "isRegex": true, "isEqual": true}],
     "startsAt": "2026-03-07T10:00:00Z",
     "endsAt": "2026-03-07T12:00:00Z",
-    "createdBy": "claude",
+    "createdBy": "ai-agent",
     "comment": "Silencing all High* alerts during maintenance"
   }' \
   "$VM_ALERTMANAGER_URL/api/v2/silences" | jq .

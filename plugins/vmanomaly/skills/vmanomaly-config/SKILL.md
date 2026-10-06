@@ -2,10 +2,15 @@
 name: vmanomaly-config
 description: >
   Design, tune, validate, and test VictoriaMetrics vmanomaly configurations for known metrics or LogsQL queries. Use when choosing static alerting versus ML, selecting a vmanomaly model, configuring Temporal Envelope, building deployment YAML, tuning anomaly sensitivity, or creating VMAlert rules. Trigger on anomaly configuration, model selection, shared autotune, seasonal anomaly detection, forecasting, or "how should I monitor this metric?" Do not use for open-ended discovery across unknown signals.
-allowed-tools: Bash(curl:*), Bash(jq:*), Read
+compatibility: OpenCode, Claude Code
 ---
 
 # vmanomaly configuration builder
+
+## Agent compatibility
+
+This skill works with OpenCode (`@vmanomaly-config`) and Claude Code.
+Use MCP tools when available and permitted, otherwise fall back to HTTP/curl against `$VM_ANOMALY_URL`.
 
 Turn a known monitoring intent into a validated vmanomaly v1.30+ configuration. ML must earn its operational cost: first decide whether a static rule expresses the failure condition more clearly.
 
@@ -129,7 +134,7 @@ Default hierarchy:
 
 For a direct configuration, begin with schema defaults and change only justified controls.
 
-For shared autotune, first select the model class. State the trial/time budget, then create one bounded task. Use causal exact validation for online models:
+For shared autotune, first select the model class. State the trial/time budget, then create one bounded task. Autotune consumes server resources; do not create duplicate tasks. Use causal exact validation for online models:
 
 ```bash
 jq -n --arg query "$QUERY" --arg timezone "$TIMEZONE" '{
@@ -168,6 +173,8 @@ curl -q --config "$VM_CURL_CONFIG" -s \
   -X POST -H 'Content-Type: application/yaml' --data-binary @config.yaml \
   "$VM_ANOMALY_URL/api/v1/config/validate" | jq .
 ```
+
+Validation is read-only against the running deployment, but confirm the user-provided config before submitting it.
 
 Then check capacity and run a bounded detection task using the validated model. The v1.30.3 task contract requires an explicit `datasource_url`; reuse the configured datasource URL when appropriate:
 
@@ -229,8 +236,8 @@ For older servers without this contract, explain the limitation rather than sile
 
 ## Safety
 
-- API validation and tasks do not deploy or hot-reload configuration.
-- Obtain approval before applying configs, creating persistent alert rules, or deleting state.
+- API validation and tasks do not deploy or hot-reload configuration; validation consumes server resources.
+- Obtain approval before applying configs, creating persistent alert rules, deleting state, or creating autotune/detection tasks.
 - Bound samples, time ranges, series limits, trial counts, and concurrent tasks.
 - Never infer that empty data means the metric does not exist until the query and labels are checked.
 

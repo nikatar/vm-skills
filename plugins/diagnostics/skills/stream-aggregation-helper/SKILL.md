@@ -10,10 +10,15 @@ description: >
   whether to scale vmagent for aggregation. Also triggers on "aggregate histograms", "drop labels
   via vmagent", "reduce ingested samples", "pre-aggregate at vmagent", "stream aggregation accuracy",
   and "stream aggregation duplicates in cluster".
-allowed-tools: Bash(curl:*), Bash(jq:*)
+compatibility: OpenCode, Claude Code
 ---
 
 # Stream Aggregation Helper
+
+## Agent compatibility
+
+This skill works with OpenCode (`@stream-aggregation-helper`) and Claude Code.
+Use MCP tools when available and permitted, otherwise fall back to HTTP/curl against `$VM_METRICS_URL`.
 
 Design, deploy, and verify [stream aggregation](https://docs.victoriametrics.com/victoriametrics/stream-aggregation/) rules
 for VictoriaMetrics. Stream aggregation reduces cardinality, sample frequency, or query cost by aggregating samples
@@ -428,9 +433,9 @@ don't apply:
 > <details>
 > <summary>Rollout</summary>
 >
-> 1. Deploy config with `-streamAggr.keepInput=true` (or `streamAggrConfig.keepInput: true` on the CRD). Reload (`kill -SIGHUP …` or `/-/reload`).
+> 1. Deploy config with `-streamAggr.keepInput=true` (or `streamAggrConfig.keepInput: true` on the CRD). Trigger a reload via your normal deployment mechanism (`kill -SIGHUP`, Kubernetes rollout, or `/-/reload` if the agent is configured to expose it).
 > 2. Wait ≥1 hour, then run the cross-check query (verification block below). Aggregated p99 should track raw p99 within a few percent.
-> 3. Remove `-streamAggr.keepInput=true`. Reload. Matched raw is now dropped from remote-write by default — cardinality reduction is realized.
+> 3. Remove `-streamAggr.keepInput=true`. Trigger a reload via the same safe mechanism. Matched raw is now dropped from remote-write by default — cardinality reduction is realized.
 > 4. Migrate dashboards / alerts to `http_request_duration_seconds_bucket:1m_without_instance_path_pod_rate_sum`. Suffix labels are sorted alphabetically.
 > </details>
 >
@@ -519,13 +524,16 @@ Chose `name` field to reflect original metric name and aggregation output, but k
    `keep_metric_names: true` (valid only with a single output), and make sure raw is fully dropped or
    you'll have two series with the same name and different semantics.
 
-Reload without restart:
+Reload without restart — use whichever mechanism your deployment provides:
 
 ```bash
 kill -SIGHUP $(pidof vmagent)
-# or
-curl -X POST http://vmagent:8429/-/reload
+# or, if the vmagent /-/reload endpoint is intentionally exposed and permitted:
+curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -X POST http://vmagent:8429/-/reload
 ```
+
+The `/-/reload` endpoint may not be exposed or permitted in your environment. Do not run it without
+confirmation.
 
 ### 4d. Estimate the savings
 

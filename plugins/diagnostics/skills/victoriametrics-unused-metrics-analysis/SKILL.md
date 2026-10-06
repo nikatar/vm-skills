@@ -8,10 +8,15 @@ description: >
   are never queried. Also trigger when the user mentions "metric cleanup", "unused series",
   "what metrics can I drop", "metric optimization", "wasted ingestion", or wants to reduce
   VictoriaMetrics resource consumption by eliminating unnecessary metrics.
-allowed-tools: Bash(curl:*), Bash(jq:*)
+compatibility: OpenCode, Claude Code
 ---
 
 # Find Unused Metrics in VictoriaMetrics
+
+## Agent compatibility
+
+This skill works with OpenCode (`@victoriametrics-unused-metrics-analysis`) and Claude Code.
+Use MCP tools when available and permitted, otherwise fall back to HTTP/curl against `$VM_METRICS_URL`.
 
 Identify metrics that are being ingested but never (or rarely) queried, then recommend concrete actions to stop wasting storage and ingestion resources.
 
@@ -228,7 +233,8 @@ metric_relabel_configs:
 Always communicate these caveats:
 
 - **Start with a test period**: Before permanently dropping metrics, use `drop` rules on a staging vmagent to verify nothing breaks.
-- **Check alert rules and recording rules**: Metrics queried only by recording rules or alerts may show low `queryRequests` counts but are still essential. Cross-reference with `api/v1/rules` output.
+- **Check alert rules, recording rules, dashboards, and SLIs**: Metrics queried only by recording rules or alerts may show low `queryRequests` counts but are still essential. Cross-reference with `api/v1/rules` output and dashboard definitions before dropping.
 - **Dashboard queries aren't tracked until viewed**: A metric used in a Grafana dashboard that nobody opened during the collection window will appear as "unused." Consider querying Grafana's API for dashboard definitions to cross-reference.
 - **Some metrics are queried seasonally**: Monthly or quarterly reports will show low query counts. The longer the collection window, the more reliable the results.
 - **Never drop `up` or meta-metrics**: Metrics like `up`, `scrape_duration_seconds`, `scrape_samples_scraped` are essential for monitoring health even if rarely queried directly.
+- **Recommendations are not deployments**: Do not apply configs, reload agents, or drop data without explicit user approval.

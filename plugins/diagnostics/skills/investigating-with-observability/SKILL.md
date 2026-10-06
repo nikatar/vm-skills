@@ -1,10 +1,17 @@
 ---
 name: investigating-with-observability
 description: Use when investigating issues, debugging problems for applications, or responding to alerts in the Kubernetes cluster using VictoriaMetrics, VictoriaLogs, or VictoriaTraces.
-allowed-tools: Bash(curl:*), Bash(jq:*), Bash(date:*), Agent, Read
+compatibility: OpenCode, Claude Code
 ---
 
 # Troubleshooting with Observability Skills
+
+## Agent compatibility
+
+This skill works with OpenCode (`@investigating-with-observability`) and Claude Code.
+When the agent supports delegation (OpenCode `subagent`, Claude `Agent`), helper
+investigations may run in parallel. If delegation is unavailable or denied, run the same helper steps sequentially
+in the main agent.
 
 ## Core Principle
 
@@ -31,21 +38,26 @@ Before writing any query, establish what's already known.
 
 **1. Check env var availability** — run the gating check from the Subagent Dispatch section.
 
-**2. Dispatch signal-gathering subagents in parallel:**
+**2. Dispatch signal-gathering subagents in parallel (or sequentially if the agent does not support delegation):**
 
-| Subagent | Condition | What it does |
+| Helper | Condition | What it does |
 |----------|-----------|-------------|
-| AlertManager check | `VM_ALERTMANAGER_URL` available | Checks VM alerts + AlertManager alerts and silences |
-| Metrics discovery (alerts only) | `VM_METRICS_URL` available AND `VM_ALERTMANAGER_URL` NOT available | Checks VM alerts as fallback when AlertManager agent can't be dispatched |
+| AlertManager check | `VM_ALERTMANAGER_URL` available or an AlertManager MCP server is permitted | Checks VM alerts + AlertManager alerts and silences |
+| Metrics discovery (alerts only) | `VM_METRICS_URL` or a VictoriaMetrics MCP is available AND AlertManager is not | Checks VM alerts as fallback when the AlertManager helper can't be dispatched |
 
-If `VM_ALERTMANAGER_URL` IS available, the AlertManager check agent handles BOTH VM alerts and AlertManager queries — no need to dispatch a separate metrics agent for alerts.
+If AlertManager IS available, the AlertManager check helper handles BOTH VM alerts and AlertManager queries — no need to dispatch a separate metrics helper for alerts.
 
-Read the agent prompt files and dispatch in a single Agent tool call. Include in each subagent's prompt:
+Read the helper prompt files (`agents/alertmanager-check.md`, etc.) and run them as subagents when delegation is permitted (OpenCode `subagent`, Claude `Agent`). In each helper task include:
 
-- The agent file content
+- The prompt file content
 - The investigation target (namespace, service, or component name if known)
+- The transport to use (MCP vs HTTP) and the exact endpoint/tenant
+- The time range
+- The required output format
 
-**3. Synthesize results** — once subagents return:
+If the current agent cannot delegate, execute the same steps sequentially in the main agent.
+
+**3. Synthesize results** — once helpers return:
 
 - Combine alert findings from all sources
 - Establish a timeline: when did symptoms start? What changed?
@@ -64,18 +76,20 @@ Read the agent prompt files and dispatch in a single Agent tool call. Include in
 
 **Never guess metric names, log field names, or service names.** Discovery is not optional — it prevents the single most common investigation failure: drawing conclusions from empty results caused by wrong names.
 
-**Dispatch discovery subagents in parallel** for ALL available backends. Read each agent prompt file and dispatch in a single Agent tool call. Include in each subagent's prompt:
+**Dispatch discovery helpers in parallel** for ALL available backends. Read each helper prompt file and run them as subagents when delegation is permitted. Include in each helper task:
 
-- The agent file content
+- The prompt file content
 - Target namespace and/or service name (from Phase 1 findings)
 - Time range for the investigation (RFC3339 format)
+- Transport to use (MCP vs HTTP) and the exact endpoint/tenant
 - Any specific keywords or components to search for
+- Required output format
 
-| Subagent | Condition |
+| Helper | Condition |
 |----------|-----------|
-| Metrics discovery | `VM_METRICS_URL` available |
-| Logs discovery | `VM_LOGS_URL` available |
-| Traces discovery | `VM_TRACES_URL` available |
+| Metrics discovery | `VM_METRICS_URL` available or a VictoriaMetrics MCP is permitted |
+| Logs discovery | `VM_LOGS_URL` available or a VictoriaLogs MCP is permitted |
+| Traces discovery | `VM_TRACES_URL` available or a VictoriaTraces MCP is permitted |
 
 **Synthesize discovery results:**
 
@@ -114,18 +128,20 @@ Three wrong guesses means you're missing something fundamental. Either:
 
 A single signal type is not proof. Correlate across at least two before concluding.
 
-**Dispatch correlation subagents in parallel** for the signal types you need. Reuse the same agent prompt files from `agents/`, but provide specific queries rather than discovery tasks. Include in each subagent's prompt:
+**Dispatch correlation helpers in parallel** for the signal types you need. Reuse the same helper prompt files from `agents/`, but provide specific queries rather than discovery tasks. Include in each helper task:
 
-- The agent file content
+- The prompt file content
 - The specific query to run (metric expression, log filter, trace search parameters)
 - The exact time range to query (narrowed from Phase 3 findings)
+- Transport to use (MCP vs HTTP) and the exact endpoint/tenant
 - What to look for (the confirmed hypothesis from Phase 3)
+- Required output format
 
 Example parallel dispatch for correlation:
 
-- Metrics agent: "Query `rate(http_requests_total{code=~'5..', namespace='myapp'}[5m])` from T1 to T2"
-- Logs agent: "Search `{namespace='myapp'} error` from T1 to T2, return sample messages"
-- Traces agent: "Search traces for service `myapp` with `minDuration=1s` from T1 to T2"
+- Metrics helper: "Query `rate(http_requests_total{code=~'5..', namespace='myapp'}[5m])` from T1 to T2"
+- Logs helper: "Search `{namespace='myapp'} error` from T1 to T2, return sample messages"
+- Traces helper: "Search traces for service `myapp` with `minDuration=1s` from T1 to T2"
 
 **Correlation techniques:**
 
@@ -174,11 +190,11 @@ echo "VM_CURL_CONFIG:      ${VM_CURL_CONFIG:-(unset - no auth)}"
 
 If unsure which environment the application runs in, ask user.
 
-## Subagent Dispatch
+## Subagent / helper dispatch
 
-This skill dispatches parallel subagents at phase boundaries to speed up investigations. Each subagent carries embedded API reference and returns structured findings.
+This skill dispatches parallel helpers at phase boundaries to speed up investigations. Each helper carries embedded API reference and returns structured findings. Run them via the agent's native delegation mechanism when it is available and permitted; otherwise execute the same steps sequentially in the main agent.
 
-### Env Var Gating
+### Env Var and MCP Gating
 
 Before each dispatch round, check which backends are available:
 
@@ -189,26 +205,29 @@ echo "TRACES:${VM_TRACES_URL:+available}"
 echo "ALERTMANAGER:${VM_ALERTMANAGER_URL:+available}"
 ```
 
-**Only dispatch subagents for backends that report `available`.** Do not dispatch a subagent if its env var is empty or unset.
+Also consider whether a matching MCP server is permitted, even if the corresponding `VM_*_URL` is unset. If the current transport for a backend is MCP, the env var does not need to be present.
+
+**Only dispatch helpers for backends that are actually reachable.** Do not dispatch a helper if neither HTTP nor MCP access is available for that backend.
 
 ### How to Dispatch
 
-1. Read the agent prompt file from the `agents/` directory (relative to this skill's directory)
-2. Use the Agent tool to dispatch, including:
-   - The agent prompt file content as the base instructions
+1. Read the helper prompt file from the `agents/` directory (relative to this skill's directory)
+2. Run the helper as a subagent when supported (OpenCode `subagent`, Claude `Agent`), including:
+   - The prompt file content as the base instructions
    - Investigation context: target namespace, service name, time range (RFC3339)
+   - Transport to use (MCP vs HTTP) and the exact endpoint/tenant
    - Any specific queries or metrics to look for
-3. Dispatch independent subagents in the SAME tool-call message for parallel execution
-4. Set `allowed-tools: Bash(curl:*), Bash(jq:*), Bash(date:*)` on each subagent
+   - Required output format
+3. If the agent does not support delegation or delegation is denied, run the same prompt content sequentially in the main agent.
 
-### Agent Files
+### Agent / helper files
 
-| Agent | File | Requires | Used in |
+| Helper | File | Requires | Used in |
 |-------|------|----------|---------|
-| AlertManager check | `agents/alertmanager-check.md` | `VM_ALERTMANAGER_URL` + `VM_METRICS_URL` | Phase 1 |
-| Metrics discovery | `agents/metrics-discovery.md` | `VM_METRICS_URL` | Phase 2, 4 |
-| Logs discovery | `agents/logs-discovery.md` | `VM_LOGS_URL` | Phase 2, 4 |
-| Traces discovery | `agents/traces-discovery.md` | `VM_TRACES_URL` | Phase 2, 4 |
+| AlertManager check | `agents/alertmanager-check.md` | `VM_ALERTMANAGER_URL` or permitted AlertManager MCP | Phase 1 |
+| Metrics discovery | `agents/metrics-discovery.md` | `VM_METRICS_URL` or permitted VictoriaMetrics MCP | Phase 2, 4 |
+| Logs discovery | `agents/logs-discovery.md` | `VM_LOGS_URL` or permitted VictoriaLogs MCP | Phase 2, 4 |
+| Traces discovery | `agents/traces-discovery.md` | `VM_TRACES_URL` or permitted VictoriaTraces MCP | Phase 2, 4 |
 
 ## Skill-to-API Mapping
 

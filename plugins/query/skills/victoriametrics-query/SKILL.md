@@ -1,17 +1,22 @@
 ---
 name: victoriametrics-query
 description: >
-  Query VictoriaMetrics metrics via curl. Use when running PromQL/MetricsQL queries, discovering metrics/labels,
+  Query VictoriaMetrics metrics via curl or MCP. Use when running PromQL/MetricsQL queries, discovering metrics/labels,
   checking alerts and rules, inspecting TSDB status, exporting raw data, checking metric usage statistics,
   or debugging relabeling/downsampling/retention configs. Triggers on: metric queries, PromQL, MetricsQL,
   label discovery, series exploration, cardinality checks, alert status, recording rules, active/top queries,
   export data, metric statistics, relabel debug, downsampling debug, retention debug, flags.
-allowed-tools: Bash(curl:*), Bash(jq:*), Bash(head:*)
+compatibility: OpenCode, Claude Code
 ---
 
 # VictoriaMetrics Metrics Query
 
-Query VictoriaMetrics HTTP API directly via curl. Covers instant/range queries, label/series discovery, alerts, rules, instance diagnostics, raw data export, metric usage statistics, and config debugging tools.
+Query VictoriaMetrics HTTP API via curl or an MCP server. Covers instant/range queries, label/series discovery, alerts, rules, instance diagnostics, raw data export, metric usage statistics, and config debugging tools.
+
+## Agent compatibility
+
+This skill works with OpenCode (`@victoriametrics-query`) and Claude Code.
+If a VictoriaMetrics MCP server is available and the requested operation is covered by a permitted tool, use the MCP tool first. Otherwise fall back to HTTP/curl against `$VM_METRICS_URL`. Do not switch transports just because a query returns an empty result.
 
 ## Environment
 
