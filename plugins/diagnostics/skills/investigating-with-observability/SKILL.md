@@ -2,6 +2,7 @@
 name: investigating-with-observability
 description: Use when investigating issues, debugging problems for applications, or responding to alerts in the Kubernetes cluster using VictoriaMetrics, VictoriaLogs, or VictoriaTraces.
 compatibility: OpenCode, Claude Code
+allowed-tools: Bash(curl:*), Bash(jq:*), Bash(date:*), Agent, Read
 ---
 
 # Troubleshooting with Observability Skills
@@ -12,6 +13,12 @@ This skill works with OpenCode (`@investigating-with-observability`) and Claude 
 When the agent supports delegation (OpenCode `subagent`, Claude `Agent`), helper
 investigations may run in parallel. If delegation is unavailable or denied, run the same helper steps sequentially
 in the main agent.
+
+Discover the available MCP tools and their actual argument and response schemas; do not guess tool names or copy HTTP parameters into MCP calls. Prefer a permitted tool for the requested operation and target. HTTP examples below apply only to HTTP.
+Use configured HTTP only when the matching MCP operation is absent or unavailable, never to bypass a permission or authentication denial or an empty result. Keep the same environment, backend instance, and tenant when switching transports; never extract MCP credentials or send credentials to guessed hosts.
+
+For backend access, `permission.rejected` or `Permission denied` means stop that operation, not missing capability. Do not retry via another command, execute/fetch, webfetch, another agent, or the parent. Report the denial and request scoped approval; a rejected compound command does not establish permission for any of its backend operations.
+Bound queries by the supplied scope, time window, and limits. Report missing capability, denied access, failed requests, and successful empty results separately. Investigation is read-only; any proposed deployment change needs separate approval.
 
 ## Core Principle
 
@@ -36,23 +43,23 @@ Phase 4: Correlate and Confirm → Cross-reference across signal types, find roo
 
 Before writing any query, establish what's already known.
 
-**1. Check env var availability** — run the gating check from the Subagent Dispatch section.
+**1. Check backend capabilities** — run the HTTP and MCP gating check from the Subagent Dispatch section.
 
 **2. Dispatch signal-gathering subagents in parallel (or sequentially if the agent does not support delegation):**
 
 | Helper | Condition | What it does |
 |----------|-----------|-------------|
-| AlertManager check | `VM_ALERTMANAGER_URL` available or an AlertManager MCP server is permitted | Checks VM alerts + AlertManager alerts and silences |
-| Metrics discovery (alerts only) | `VM_METRICS_URL` or a VictoriaMetrics MCP is available AND AlertManager is not | Checks VM alerts as fallback when the AlertManager helper can't be dispatched |
+| AlertManager check | A permitted VM alerts or AlertManager operation is available through MCP or configured HTTP | Checks each available backend independently; reports unavailable operations |
 
-If AlertManager IS available, the AlertManager check helper handles BOTH VM alerts and AlertManager queries — no need to dispatch a separate metrics helper for alerts.
+The AlertManager check helper handles VM alerts and AlertManager queries only where each operation is available. It can run with either backend alone; do not dispatch a separate metrics discovery helper for alerts.
 
 Read the helper prompt files (`agents/alertmanager-check.md`, etc.) and run them as subagents when delegation is permitted (OpenCode `subagent`, Claude `Agent`). In each helper task include:
 
 - The prompt file content
 - The investigation target (namespace, service, or component name if known)
-- The transport to use (MCP vs HTTP) and the exact endpoint/tenant
+- Available operations and transport configuration per backend, with the exact target/tenant and permitted tools
 - The time range
+- Query limits and budget; helpers must use their own permissions, not assume they inherit the parent's access
 - The required output format
 
 If the current agent cannot delegate, execute the same steps sequentially in the main agent.
@@ -81,7 +88,7 @@ If the current agent cannot delegate, execute the same steps sequentially in the
 - The prompt file content
 - Target namespace and/or service name (from Phase 1 findings)
 - Time range for the investigation (RFC3339 format)
-- Transport to use (MCP vs HTTP) and the exact endpoint/tenant
+- Available operations and transport configuration per backend, exact target/tenant, permitted tools, and query budget
 - Any specific keywords or components to search for
 - Required output format
 
@@ -133,14 +140,14 @@ A single signal type is not proof. Correlate across at least two before concludi
 - The prompt file content
 - The specific query to run (metric expression, log filter, trace search parameters)
 - The exact time range to query (narrowed from Phase 3 findings)
-- Transport to use (MCP vs HTTP) and the exact endpoint/tenant
+- Available operations and transport configuration per backend, exact target/tenant, permitted tools, and query budget
 - What to look for (the confirmed hypothesis from Phase 3)
 - Required output format
 
 Example parallel dispatch for correlation:
 
-- Metrics helper: "Query `rate(http_requests_total{code=~'5..', namespace='myapp'}[5m])` from T1 to T2"
-- Logs helper: "Search `{namespace='myapp'} error` from T1 to T2, return sample messages"
+- Metrics helper: run `rate(http_requests_total{code=~"5..", namespace="myapp"}[5m])` from T1 to T2
+- Logs helper: search `{namespace="myapp"} error` from T1 to T2, return sample messages
 - Traces helper: "Search traces for service `myapp` with `minDuration=1s` from T1 to T2"
 
 **Correlation techniques:**
@@ -178,14 +185,14 @@ If you catch yourself:
 
 ## Environment
 
-Environment is controlled by env vars. Check current state:
+HTTP targets are configured through env vars; MCP targets are configured separately. Check availability without printing URLs that might contain credentials:
 
 ```bash
-echo "VM_METRICS_URL:      $VM_METRICS_URL"
-echo "VM_LOGS_URL:         $VM_LOGS_URL"
-echo "VM_TRACES_URL:       $VM_TRACES_URL"
-echo "VM_ALERTMANAGER_URL: $VM_ALERTMANAGER_URL"
-echo "VM_CURL_CONFIG:      ${VM_CURL_CONFIG:-(unset - no auth)}"
+echo "VM_METRICS_URL:      ${VM_METRICS_URL:+configured}"
+echo "VM_LOGS_URL:         ${VM_LOGS_URL:+configured}"
+echo "VM_TRACES_URL:       ${VM_TRACES_URL:+configured}"
+echo "VM_ALERTMANAGER_URL: ${VM_ALERTMANAGER_URL:+configured}"
+echo "VM_CURL_CONFIG:      ${VM_CURL_CONFIG:+configured}"
 ```
 
 If unsure which environment the application runs in, ask user.
@@ -205,9 +212,9 @@ echo "TRACES:${VM_TRACES_URL:+available}"
 echo "ALERTMANAGER:${VM_ALERTMANAGER_URL:+available}"
 ```
 
-Also consider whether a matching MCP server is permitted, even if the corresponding `VM_*_URL` is unset. If the current transport for a backend is MCP, the env var does not need to be present.
+Discover matching permitted MCP operations and their schemas, even if the corresponding `VM_*_URL` is unset. A connected server alone does not prove that a particular operation is supported. Choose transport per operation, so VM alerts may use MCP while AlertManager uses HTTP.
 
-**Only dispatch helpers for backends that are actually reachable.** Do not dispatch a helper if neither HTTP nor MCP access is available for that backend.
+**Only dispatch helpers with configured, permitted access for at least one relevant operation.** Let the helper report whether requests succeed; do not assume configuration proves connectivity. Do not dispatch if neither HTTP nor MCP access is available, or use another transport to bypass denied access.
 
 ### How to Dispatch
 
@@ -215,16 +222,18 @@ Also consider whether a matching MCP server is permitted, even if the correspond
 2. Run the helper as a subagent when supported (OpenCode `subagent`, Claude `Agent`), including:
    - The prompt file content as the base instructions
    - Investigation context: target namespace, service name, time range (RFC3339)
-   - Transport to use (MCP vs HTTP) and the exact endpoint/tenant
+   - Available operations and transport configuration per backend, exact target/tenant, permitted tools, and query budget
    - Any specific queries or metrics to look for
    - Required output format
 3. If the agent does not support delegation or delegation is denied, run the same prompt content sequentially in the main agent.
+
+Pass this transport policy and the helper's output format explicitly. Helpers start with fresh context and their own permissions. The files below are task templates, not automatically registered OpenCode agent profiles; use an existing suitable agent when permitted.
 
 ### Agent / helper files
 
 | Helper | File | Requires | Used in |
 |-------|------|----------|---------|
-| AlertManager check | `agents/alertmanager-check.md` | `VM_ALERTMANAGER_URL` or permitted AlertManager MCP | Phase 1 |
+| AlertManager check | `agents/alertmanager-check.md` | At least one permitted VM alerts or AlertManager operation via MCP or configured HTTP | Phase 1 |
 | Metrics discovery | `agents/metrics-discovery.md` | `VM_METRICS_URL` or permitted VictoriaMetrics MCP | Phase 2, 4 |
 | Logs discovery | `agents/logs-discovery.md` | `VM_LOGS_URL` or permitted VictoriaLogs MCP | Phase 2, 4 |
 | Traces discovery | `agents/traces-discovery.md` | `VM_TRACES_URL` or permitted VictoriaTraces MCP | Phase 2, 4 |
@@ -240,7 +249,7 @@ alertmanager-query     = AlertManager (silences, routing) → $VM_ALERTMANAGER_U
 
 Never cross APIs between backends. Use the correct env var and endpoint for each data type.
 
-AlertManager provides what VM alerts cannot: **silences** and **inhibition state**. But it's in-cluster and may be down — fall back to `$VM_METRICS_URL/api/v1/alerts` when unavailable.
+AlertManager provides what VM alerts cannot: **silences** and **inhibition state**. If it is unavailable, independently query VM alerts when permitted, and report that silence/inhibition data is missing. VM alerts do not replace those operations or justify bypassing an AlertManager access denial.
 
 ## Timestamp Formats
 
@@ -251,7 +260,7 @@ AlertManager provides what VM alerts cannot: **silences** and **inhibition state
 | VictoriaTraces | start/end | Unix microseconds NUMBER | `1738836000000000` (16 digits) |
 | VictoriaTraces (dependencies) | endTs/lookback | Unix milliseconds NUMBER | `1738836000000` (13 digits) / `3600000` |
 
-VictoriaLogs `start` is always required — omitting it scans ALL stored data (extremely expensive).
+This table describes HTTP examples, not MCP tool schemas. Bound log discovery and range requests with explicit `start`/`end`. Instant `stats_query` instead uses `time` plus a bounded `_time:` filter; never leave the log window unbounded.
 
 ## Discovery Protocol
 
@@ -266,21 +275,21 @@ Follow this order for each signal type. For full API details and additional endp
 
 ### Logs Discovery → `victorialogs-query` skill
 
-ALL VictoriaLogs endpoints require `start` (RFC3339). Use `--data-urlencode` for the query parameter.
+For the HTTP discovery and query endpoints below, provide explicit `start` and `end` (RFC3339). Use `--data-urlencode` for the query parameter. Instant stats use `time` and a bounded `_time:` filter instead; adapt MCP calls to their discovered schemas.
 
-1. **Stream field names**: `$VM_LOGS_URL/select/logsql/stream_field_names?start=<RFC3339>`
-2. **Stream field values**: `$VM_LOGS_URL/select/logsql/stream_field_values?start=<RFC3339>&field=namespace`
-3. **Facets** (best discovery tool — all field distributions in one call): `$VM_LOGS_URL/select/logsql/facets?start=<RFC3339>`
-4. **Non-stream field names**: `$VM_LOGS_URL/select/logsql/field_names?start=<RFC3339>`
-5. **Then query** (JSON Lines response): `$VM_LOGS_URL/select/logsql/query?start=<RFC3339>&limit=100`
+1. **Stream field names**: `$VM_LOGS_URL/select/logsql/stream_field_names?start=<RFC3339_start>&end=<RFC3339_end>`
+2. **Stream field values**: `$VM_LOGS_URL/select/logsql/stream_field_values?start=<RFC3339_start>&end=<RFC3339_end>&field=namespace`
+3. **Facets** (best discovery tool — all field distributions in one call): `$VM_LOGS_URL/select/logsql/facets?start=<RFC3339_start>&end=<RFC3339_end>`
+4. **Non-stream field names**: `$VM_LOGS_URL/select/logsql/field_names?start=<RFC3339_start>&end=<RFC3339_end>`
+5. **Then query** (JSON Lines response): `$VM_LOGS_URL/select/logsql/query?start=<RFC3339_start>&end=<RFC3339_end>&limit=100`
 
 ### Traces Discovery → `victoriatraces-query` skill
 
-Trace discovery endpoints accept NO time-range parameters:
+Service and operation discovery endpoints accept no time-range parameters. Dependency and trace searches use the supplied incident bounds:
 
 1. **List services**: `$VM_TRACES_URL/api/services`
 2. **Operations for a service**: `$VM_TRACES_URL/api/services/<service>/operations`
-3. **Dependencies** (Unix milliseconds, 13 digits): `$VM_TRACES_URL/api/dependencies?endTs=<ms>&lookback=3600000`
+3. **Dependencies** (Unix milliseconds): `$VM_TRACES_URL/api/dependencies?endTs=<incident_end_ms>&lookback=<incident_duration_ms>`
 4. **Then search traces** (`service` required, times in Unix microseconds, 16 digits): `$VM_TRACES_URL/api/traces?service=<svc>&start=<µs>&end=<µs>&limit=20`
 
 ## LogsQL Quick Reference
@@ -332,12 +341,12 @@ For full LogsQL syntax, invoke the `victorialogs-query` skill. Key points:
 | Guessing metric names | Use metadata endpoint: `$VM_METRICS_URL/api/v1/metadata?metric=keyword` |
 | Writing LogsQL from memory | Consult LogsQL Quick Reference above or victorialogs-query skill |
 | Wrong timestamp format | See Timestamp Formats table above |
-| Skipping alerts check | Query `$VM_METRICS_URL/api/v1/alerts` first — it's free |
+| Skipping alerts check | Query available, permitted VM alerts and/or AlertManager operations first |
 | Empty results → "no problem" | Verify metric/field names exist via discovery first |
 | Not using `facets` for log exploration | `facets` returns field distributions in one call |
 | Not URL-encoding queries | Use `--data-urlencode 'query=...'` for POST requests |
-| Missing `start` on VictoriaLogs | Omitting `start` scans ALL data (extremely expensive) |
-| Forgetting `match[]` needs `[]` | `match` alone won't work — must be `match[]` |
+| Unbounded VictoriaLogs window | Use explicit `start`/`end`, or a bounded `_time:` filter with `time` for instant stats |
+| Copying HTTP parameters into MCP calls | HTTP selectors use `match[]`; MCP may use `match`. Follow the actual tool schema |
 | Wrong timestamp type for traces | Search uses MICROSECONDS (16 digits), dependencies use MILLISECONDS (13 digits) |
 | Confusing `stats_query` vs `stats_query_range` | Instant uses `time`, range uses `start`/`end`/`step` |
 | Mixing `_time:` filter with API `start` | Use one OR the other, never both |

@@ -49,8 +49,11 @@ Evaluate a LogsQL stats query at a single point in time. Query MUST contain a `|
 | Parameter | Required | Type | Default | Description |
 |-----------|----------|------|---------|-------------|
 | `query` | Yes | string | - | LogsQL query with `| stats` pipe |
-| `time` | Yes* | RFC3339 | - | Evaluation timestamp. *Required despite docs marking optional. |
-| `start` | No | RFC3339 | - | Alternative to `time` — start of aggregation window |
+| `time` | No (pass explicitly) | timestamp | current time | Evaluation timestamp; does not bound aggregation by itself |
+| `start` | No | timestamp | minimum stored timestamp | Start of aggregation window, not an alternative to `time` |
+| `end` | No | timestamp | maximum stored timestamp + 1ns | Exclusive end of aggregation window |
+
+Use a bounded `_time:` filter with explicit `time`, or explicit HTTP `start`/`end`, to avoid scanning all stored logs. See the [published API documentation](https://docs.victoriametrics.com/victorialogs/querying/#querying-log-stats); MCP parameters may differ.
 
 Response (Prometheus-compatible JSON):
 
@@ -77,7 +80,7 @@ Example:
 
 ```bash
 curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -s \
-  --data-urlencode 'query={namespace="myapp"} | stats by (level) count() as total' \
+  --data-urlencode 'query=_time:1h {namespace="myapp"} | stats by (level) count() as total' \
   "$VM_LOGS_URL/select/logsql/stats_query?time=2026-03-07T09:00:00Z" | jq .
 ```
 

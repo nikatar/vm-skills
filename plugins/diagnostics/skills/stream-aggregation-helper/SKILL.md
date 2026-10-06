@@ -11,6 +11,7 @@ description: >
   via vmagent", "reduce ingested samples", "pre-aggregate at vmagent", "stream aggregation accuracy",
   and "stream aggregation duplicates in cluster".
 compatibility: OpenCode, Claude Code
+allowed-tools: Bash(curl:*), Bash(jq:*)
 ---
 
 # Stream Aggregation Helper
@@ -18,7 +19,12 @@ compatibility: OpenCode, Claude Code
 ## Agent compatibility
 
 This skill works with OpenCode (`@stream-aggregation-helper`) and Claude Code.
-Use MCP tools when available and permitted, otherwise fall back to HTTP/curl against `$VM_METRICS_URL`.
+Discover the available MCP tools and their actual argument and response schemas; do not guess tool names or copy HTTP parameters into MCP calls. Prefer a permitted tool for the requested operation and target. HTTP examples below apply only to HTTP.
+Use configured HTTP only when the matching MCP operation is absent or unavailable, never to bypass a permission or authentication denial or an empty result. Keep the same environment, backend instance, and tenant when switching transports; never extract MCP credentials or send credentials to guessed hosts.
+
+For backend access, `permission.rejected` or `Permission denied` means stop that operation, not missing capability. Do not retry via another command, execute/fetch, webfetch, another agent, or the parent. Report the denial and request scoped approval; a rejected compound command does not establish permission for any of its backend operations.
+Bound queries by the supplied scope, time window, and limits. Report missing capability, denied access, failed requests, and successful empty results separately. Before retrying a mutation with an unknown outcome, verify its state and obtain approval; do not blindly replay it.
+Generating a configuration or rollout plan does not authorize deploying it. Obtain explicit approval before changing a running configuration, rolling out workloads, updating consumers, or reloading by HTTP or signal.
 
 Design, deploy, and verify [stream aggregation](https://docs.victoriametrics.com/victoriametrics/stream-aggregation/) rules
 for VictoriaMetrics. Stream aggregation reduces cardinality, sample frequency, or query cost by aggregating samples
@@ -93,7 +99,7 @@ If the gate passes, continue. If not, recommend the alternative and stop.
 
 ## Phase 2: Intake
 
-Collect three groups of facts. Run the live queries in parallel **only if** `VM_METRICS_URL` is set; otherwise
+Collect three groups of facts. Run bounded live queries when permitted MCP operations or configured HTTP are available; otherwise
 ask the user the same questions directly.
 
 ### 2a. Cardinality picture
@@ -524,16 +530,16 @@ Chose `name` field to reflect original metric name and aggregation output, but k
    `keep_metric_names: true` (valid only with a single output), and make sure raw is fully dropped or
    you'll have two series with the same name and different semantics.
 
-Reload without restart — use whichever mechanism your deployment provides:
+Reload without restart only after explicit approval of the change and its exact target. Choose one mechanism provided by the deployment. The variables below are placeholders for the confirmed process or URL and its matching auth file; do not guess a host or reuse credentials intended for another service:
 
 ```bash
-kill -SIGHUP $(pidof vmagent)
+kill -SIGHUP "$CONFIRMED_VMAGENT_PID"
 # or, if the vmagent /-/reload endpoint is intentionally exposed and permitted:
-curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -X POST http://vmagent:8429/-/reload
+curl -q --config "${CONFIRMED_VMAGENT_CURL_CONFIG:-/dev/null}" -X POST \
+  "${CONFIRMED_VMAGENT_URL%/}/-/reload"
 ```
 
-The `/-/reload` endpoint may not be exposed or permitted in your environment. Do not run it without
-confirmation.
+The `/-/reload` endpoint may not be exposed or permitted. Approval is required for signal reloads, HTTP reloads, and workload rollouts alike; generating this plan does not authorize any of them.
 
 ### 4d. Estimate the savings
 

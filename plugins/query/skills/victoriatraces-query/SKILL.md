@@ -6,6 +6,7 @@ description: >
   or mapping service dependencies. Triggers on: trace queries, span search, trace ID lookup,
   service discovery, operation discovery, service dependencies, distributed tracing, Jaeger API.
 compatibility: OpenCode, Claude Code
+allowed-tools: Bash(curl:*), Bash(jq:*), Bash(date:*)
 ---
 
 # VictoriaTraces Query
@@ -15,7 +16,11 @@ Query VictoriaTraces Jaeger-compatible HTTP API via curl or an MCP server. Cover
 ## Agent compatibility
 
 This skill works with OpenCode (`@victoriatraces-query`) and Claude Code.
-If a VictoriaTraces MCP server is available and the requested operation is covered by a permitted tool, use the MCP tool first. Otherwise fall back to HTTP/curl against `$VM_TRACES_URL`. Do not switch transports just because a service has no traces.
+Discover the available MCP tools and their actual argument and response schemas; do not guess tool names or copy HTTP parameters into MCP calls. Prefer a permitted tool for the requested operation and target. HTTP examples below apply only to HTTP.
+Use configured HTTP only when the matching MCP operation is absent or unavailable, never to bypass a permission or authentication denial or an empty result. Keep the same environment, backend instance, and tenant when switching transports; never extract MCP credentials or send credentials to guessed hosts.
+
+For backend access, `permission.rejected` or `Permission denied` means stop that operation, not missing capability. Do not retry via another command, execute/fetch, webfetch, another agent, or the parent. Report the denial and request scoped approval; a rejected compound command does not establish permission for any of its backend operations.
+Bound queries by the supplied scope, time window, and limits. Report missing capability, denied access, failed requests, and successful empty results separately. Before retrying a mutation with an unknown outcome, verify its state and obtain approval; do not blindly replay it.
 
 ## Environment
 

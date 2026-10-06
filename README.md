@@ -68,14 +68,15 @@ Install plugins:
 
 Skills are discovered from `.opencode/skills`, `.agents/skills`, `.claude/skills`, or the global `~/.config/opencode/skills` directory.
 
-Example: symlink or copy the skill directories into `~/.agents/skills`:
+Alternatively, clone this repository and add its `plugins` directory to the `skills` array in your existing global `~/.config/opencode/opencode.jsonc` or project configuration. OpenCode discovers the nested skills recursively:
 
-```bash
-mkdir -p ~/.agents/skills
-for d in plugins/*/skills/*/; do
-  ln -sf "$(pwd)/$d" "$HOME/.agents/skills/$(basename "$d")"
-done
+```jsonc
+{
+  "skills": ["~/path/to/your/checkout/plugins"]
+}
 ```
+
+Replace the example with the actual absolute or `~/` path to your checkout. Merge this entry with existing settings rather than replacing the configuration. Use only one installation method to avoid duplicate skill IDs; no symlinks are needed.
 
 Then mention a skill by ID, e.g. `@victoriametrics-query`.
 
@@ -122,7 +123,7 @@ existing-alert review, and multi-signal incident correlation.
 
 ### Claude Code
 
-Once installed, skills are available as slash commands and are also triggered automatically when Claude detects a matching request:
+Once installed, skills are available as slash commands and may be triggered automatically when Claude detects a matching request. `vm-trace-analyzer` retains explicit invocation in Claude Code. The plugin marketplace installation uses these namespaced commands:
 
 ```
 /query:victoriametrics-query            - query metrics, discover labels, check alerts and rules
@@ -183,12 +184,12 @@ Rules:
 - An empty result is a valid result — do not switch transports just because a query returns no data.
 - A permission denial is not a reason to fall back to HTTP; stop and explain.
 - After an error or timeout on a mutating call (silence, reload, task creation), do not blindly retry with the other transport. First confirm whether the operation already executed.
-- When mixing transports, make sure they target the **same environment, instance, and tenant**.
+- When switching transports for a backend, keep the **same environment, backend instance, and tenant**. Different backends may use different transports.
 - `VM_*_URL` being unset does not mean the service is absent if an MCP server is connected.
 
 ## Environment Variables
 
-The query, diagnostics and vmanomaly skills use `curl` and expect these environment variables.
+The HTTP examples in query, diagnostics and vmanomaly skills use `curl` and require the matching URL below. MCP operations do not require these variables.
 The `victoriametrics-docs` skill reads the published documentation over HTTP and needs none of them.
 
 ```bash
@@ -274,13 +275,17 @@ Each helper must be given the same context explicitly:
 - task scope and limits,
 - target environment, endpoint, and tenant,
 - time range,
-- transport to use (MCP or HTTP),
+- available operations and transport configuration per backend (MCP tools or HTTP URL),
 - output format,
 - the relevant agent prompt file content.
 
 ## Safety notes
 
-- **Read-only diagnostics and config generation are separate from mutations.** Do not apply configs, reload agents, create persistent alert rules, purge state, expire silences, or cancel another user's task without explicit approval.
+- **Read-only diagnostics and config generation are separate from mutations.** Do not apply configs, reload agents, create persistent alert rules, purge state, expire silences, or cancel/delete tasks without explicit approval. Obtain approval for the query scope, time range, and resource budget before creating autotune or detection tasks.
 - **MCP access is not a substitute for permissions.** Agent-level permission rules (OpenCode `permissions`, Claude approval modes) still govern what tools can actually do.
-- **The `allowed-tools` frontmatter is a hint, not a security boundary.** Actual enforcement depends on the agent's own permission system.
+- **`allowed-tools` is agent-specific.** Claude Code uses it to pre-approve matching tools during skill invocation, not as an exclusive allowlist. OpenCode ignores this field; configure actual agent permissions separately. Helpers have their own permissions, so a parent's access is not a grant to a child.
 - **Metric cleanup is suggestive.** A metric that appears unused may still be needed by dashboards, recording rules, or seasonal reports. Cross-check before recommending deletion.
+
+## Offline checks
+
+Run `python3 tests/test_skills.py` to check skill headers, resource links, Python/JSON syntax, and the trace parser CLI. These checks do not verify agent behavior, live MCP connections, or end-to-end compatibility.

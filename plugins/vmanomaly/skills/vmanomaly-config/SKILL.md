@@ -3,6 +3,7 @@ name: vmanomaly-config
 description: >
   Design, tune, validate, and test VictoriaMetrics vmanomaly configurations for known metrics or LogsQL queries. Use when choosing static alerting versus ML, selecting a vmanomaly model, configuring Temporal Envelope, building deployment YAML, tuning anomaly sensitivity, or creating VMAlert rules. Trigger on anomaly configuration, model selection, shared autotune, seasonal anomaly detection, forecasting, or "how should I monitor this metric?" Do not use for open-ended discovery across unknown signals.
 compatibility: OpenCode, Claude Code
+allowed-tools: Bash(curl:*), Bash(jq:*), Read
 ---
 
 # vmanomaly configuration builder
@@ -10,7 +11,12 @@ compatibility: OpenCode, Claude Code
 ## Agent compatibility
 
 This skill works with OpenCode (`@vmanomaly-config`) and Claude Code.
-Use MCP tools when available and permitted, otherwise fall back to HTTP/curl against `$VM_ANOMALY_URL`.
+Discover the available MCP tools and their actual argument and response schemas; do not guess tool names or copy HTTP parameters into MCP calls. Prefer a permitted tool for the requested operation and target. HTTP examples below apply only to HTTP.
+Use configured HTTP only when the matching MCP operation is absent or unavailable, never to bypass a permission or authentication denial or an empty result. Keep the same environment, backend instance, and tenant when switching transports; never extract MCP credentials or send credentials to guessed hosts.
+
+For backend access, `permission.rejected` or `Permission denied` means stop that operation, not missing capability. Do not retry via another command, execute/fetch, webfetch, another agent, or the parent. Report the denial and request scoped approval; a rejected compound command does not establish permission for any of its backend operations.
+Bound queries by the supplied scope, time window, and limits. Report missing capability, denied access, failed requests, and successful empty results separately. Before retrying a mutation with an unknown outcome, verify its state and obtain approval; do not blindly replay it.
+Before creating autotune or detection tasks, disclose the query scope, time range, and resource budget and obtain explicit approval. Applying configuration, deleting persisted state, and canceling or deleting tasks also require explicit approval.
 
 Turn a known monitoring intent into a validated vmanomaly v1.30+ configuration. ML must earn its operational cost: first decide whether a static rule expresses the failure condition more clearly.
 
@@ -25,7 +31,7 @@ export VM_ANOMALY_URL="https://vmanomaly.example.com"
 export VM_CURL_CONFIG="${VM_CURL_CONFIG:-/dev/null}"
 ```
 
-Include any configured path prefix in `VM_ANOMALY_URL`. Never print or create the credential file. Ask for the URL when it is unavailable.
+For HTTP, include any configured path prefix in `VM_ANOMALY_URL`. Never print or create the credential file. Ask for the URL only when HTTP is needed and no matching permitted MCP operation is available.
 
 ## Workflow
 
@@ -134,7 +140,7 @@ Default hierarchy:
 
 For a direct configuration, begin with schema defaults and change only justified controls.
 
-For shared autotune, first select the model class. State the trial/time budget, then create one bounded task. Autotune consumes server resources; do not create duplicate tasks. Use causal exact validation for online models:
+For shared autotune, first select the model class. Obtain explicit approval for the query scope, time range, and trial/time budget, then create one bounded task. Autotune consumes server resources; do not create duplicate tasks. Use causal exact validation for online models:
 
 ```bash
 jq -n --arg query "$QUERY" --arg timezone "$TIMEZONE" '{
@@ -176,7 +182,7 @@ curl -q --config "$VM_CURL_CONFIG" -s \
 
 Validation is read-only against the running deployment, but confirm the user-provided config before submitting it.
 
-Then check capacity and run a bounded detection task using the validated model. The v1.30.3 task contract requires an explicit `datasource_url`; reuse the configured datasource URL when appropriate:
+Then check capacity and obtain explicit approval for the bounded detection run using the validated model. The v1.30.3 task contract requires an explicit `datasource_url`; reuse the configured datasource URL when appropriate:
 
 ```bash
 curl -q --config "$VM_CURL_CONFIG" -s \
@@ -219,11 +225,11 @@ Provide:
 
 Generated `/api/vmanomaly/config.yaml` and `/api/vmanomaly/example-alert-rule.yaml` output is a starting point, not proof of correctness. The config endpoint preserves the VMUI/model-spec compatibility shape; before presenting v1.30.2+ deployment YAML, move the four stable business policies to `reader.queries.<alias>`, add `reader.workers` when appropriate, and validate the final configuration.
 
-## Efficient Copilot context
+## Efficient context and connected Copilot UI
 
-Reuse already available schemas, profiles and completed task results. Use focused documentation search with a small explicit top-k (usually 3–5); results may be excerpts. Check their source URI, offsets and truncation marker, then use `vmanomaly_read_doc_section` to retrieve missing context before relying on it. Do not treat excerpt omission as evidence that a parameter or limitation does not exist. Avoid repeating broad searches and full documentation in conversation history.
+Reuse already available schemas, profiles and completed task results. Use focused documentation search with a small explicit top-k (usually 3–5); results may be excerpts. Check their source URI, offsets and truncation marker, then retrieve missing context through available permitted documentation tools or published sources. Use `vmanomaly_read_doc_section` only if it is present in the discovered tool catalog. Do not treat excerpt omission as evidence that a parameter or limitation does not exist. Avoid repeating broad searches and full documentation in conversation history.
 
-Show each proposed configuration once through its approval card; reserve standalone YAML for explicit export requests. Keep explanations short. Never reduce context by dropping query aliases, expressions, disabled rows, business-policy inheritance, validation constraints, or pending approval data. Named-query UI application does not imply shared named-query autotune support; inspect the actual tool schema.
+When connected to a Copilot UI with approval cards, show each proposed configuration once through its card and reserve standalone YAML for explicit export requests. Without that UI, provide the configuration directly; do not invent card tools. Keep explanations short. Never reduce context by dropping query aliases, expressions, disabled rows, business-policy inheritance, validation constraints, or pending approval data. Named-query UI application does not imply shared named-query autotune support; inspect the actual tool schema.
 
 The backend may compact duplicate completed tool results and enforce a local context budget independently of the provider. On a budget refusal, keep the current UI state and explain how to resume with a narrower request or a fresh conversation; do not claim an unapplied suggestion succeeded. Token ceilings are maximum output allowances, not targets. Usage counters and byte comparisons are useful for measurement but do not establish exact provider billing savings.
 

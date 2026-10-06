@@ -9,6 +9,7 @@ description: >
   endpoint exist, MetricsQL function, LogsQL pipe, LogsQL filter, operator flag, is this
   documented, where are the docs, VictoriaMetrics documentation.
 compatibility: OpenCode, Claude Code
+allowed-tools: Bash(python3:*), Read
 ---
 
 # VictoriaMetrics documentation lookup
@@ -16,7 +17,8 @@ compatibility: OpenCode, Claude Code
 ## Agent compatibility
 
 This skill works with OpenCode (`@victoriametrics-docs`) and Claude Code.
-It only needs the bundled Python script and read access; no backend environment variables are required.
+Use permitted MCP documentation tools when available; otherwise the bundled Python script fetches published documentation over the network. No backend environment variables are required. Do not use another transport to bypass denied access.
+A search with no hits does not establish absence. For an exact flag or path, use the script's scoped lookup when permitted; only a completed scan can report `NOT FOUND`, while incomplete retrieval is `UNKNOWN`.
 
 Confirm a flag, an API path or a query construct against the published documentation before
 naming it. An invented flag reads exactly like a real one, so a reader cannot tell the
@@ -39,8 +41,7 @@ difference without checking.
   guess. Do not cite a bare page URL when the lookup gave you an anchored one.
 - `/flags` on a running instance is not a list of available flags. It returns only the flags an
   operator set explicitly, so it answers how this instance is configured and nothing more.
-- A skill that already carries an API reference wins for its own endpoints. Use this one for
-  flags, for products those skills do not cover, and for anything their reference omits.
+- Bundled API references are convenient starting points, not authority over current published documentation or version-specific runtime capabilities. Verify conflicting details against those sources and state version differences explicitly.
 
 ## Usage
 

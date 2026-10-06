@@ -3,6 +3,7 @@ name: vmanomaly-review
 description: >
   Audit an existing VictoriaMetrics vmanomaly configuration against runtime capabilities and real data. Use when reviewing model-data fit, scheduler cadence, persisted-state compatibility, cold start, excessive detections, missing anomalies, output cardinality, or upgrade readiness. Trigger on vmanomaly config review, false-positive investigation, detection quality, model effectiveness, compatibility, and "is my anomaly detection working?" Use vmanomaly-config instead when building a new configuration from scratch.
 compatibility: OpenCode, Claude Code
+allowed-tools: Bash(curl:*), Bash(jq:*), Read
 ---
 
 # vmanomaly configuration reviewer
@@ -10,7 +11,12 @@ compatibility: OpenCode, Claude Code
 ## Agent compatibility
 
 This skill works with OpenCode (`@vmanomaly-review`) and Claude Code.
-Use MCP tools when available and permitted, otherwise fall back to HTTP/curl against `$VM_ANOMALY_URL`.
+Discover the available MCP tools and their actual argument and response schemas; do not guess tool names or copy HTTP parameters into MCP calls. Prefer a permitted tool for the requested operation and target. HTTP examples below apply only to HTTP.
+Use configured HTTP only when the matching MCP operation is absent or unavailable, never to bypass a permission or authentication denial or an empty result. Keep the same environment, backend instance, and tenant when switching transports; never extract MCP credentials or send credentials to guessed hosts.
+
+For backend access, `permission.rejected` or `Permission denied` means stop that operation, not missing capability. Do not retry via another command, execute/fetch, webfetch, another agent, or the parent. Report the denial and request scoped approval; a rejected compound command does not establish permission for any of its backend operations.
+Bound queries by the supplied scope, time window, and limits. Report missing capability, denied access, failed requests, and successful empty results separately. Before retrying a mutation with an unknown outcome, verify its state and obtain approval; do not blindly replay it.
+Before creating autotune or detection tasks, disclose the query scope, time range, and resource budget and obtain explicit approval. Applying configuration, deleting persisted state, and canceling or deleting tasks also require explicit approval.
 
 Review a running or proposed vmanomaly v1.30+ configuration without mutating it. Separate facts, measured evidence, and hypotheses. A static rule may be a better outcome than an ML model.
 
@@ -174,7 +180,7 @@ Poll sequentially until `done`, `error`, or `canceled`. Use `exact:true` for cau
 
 For an exploratory online task, a `fit_every` longer than the inference range preserves a single continuous state. This is not automatically the right production cadence.
 
-Do not create duplicates while a task is running. Task creation and config validation consume server resources; applying changes is not.
+Do not create duplicates while a task is running. Task creation and config validation consume server resources but do not deploy configuration; applying configuration changes the running deployment and needs separate approval.
 
 ### 7. Evaluate evidence correctly
 
@@ -199,7 +205,7 @@ Change the smallest justified set, validate it, and rerun the same bounded inter
 
 Typical fixes include removing unsupported seasonal profiles, widening/narrowing the ordinary envelope, freezing direction/domain thresholds, extending fit history, splitting heterogeneous queries, adding multivariate grouping, or choosing a simpler/static detector.
 
-Shared autotune may produce a candidate after model class is chosen. Use `exact:true` for online models and apply the returned concrete `modelConfig`; do not silently convert it to `class: auto`.
+Shared autotune may produce a candidate after model class is chosen and the task budget is approved. Use `exact:true` for online models and validate/test the returned concrete `modelConfig`; deploy only with separate approval. Do not silently convert it to `class: auto`.
 
 ### 9. Report
 

@@ -13,6 +13,11 @@ description: >
   VictoriaMetrics. This skill provides a structured report template that ensures consistent,
   thorough analysis — do not attempt to analyze VM traces without it.
 compatibility: OpenCode, Claude Code
+argument-hint: trace.json
+disable-model-invocation: true
+allowed-tools: Bash(python3:*), Read
+metadata:
+  opencode/autoinvoke: true
 ---
 
 # VictoriaMetrics Query Trace Analyzer
@@ -24,6 +29,7 @@ You are analyzing a VictoriaMetrics query trace — a JSON tree that records eve
 This skill works with OpenCode (`@vm-trace-analyzer`) and Claude Code.
 It only requires reading the provided trace file and running bundled Python scripts. No MCP or HTTP
 backend is needed, though `trace=1` may have been produced by a VictoriaMetrics MCP `query`/`query_range` call.
+The optional changelog lookup requires network access to GitHub. Claude Code retains explicit invocation; OpenCode may discover this skill automatically.
 
 ## Background
 

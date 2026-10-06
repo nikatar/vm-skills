@@ -8,6 +8,7 @@ description: >
   metric cleanup, too many time series, or wants to reduce cardinality. Also trigger when discussing
   relabeling strategies, streaming aggregation opportunities, or "which metrics can we drop".
 compatibility: OpenCode, Claude Code
+allowed-tools: Bash(curl:*), Bash(jq:*), Bash(date:*)
 ---
 
 # VictoriaMetrics Cardinality Analysis
@@ -19,7 +20,12 @@ the user can apply directly.
 ## Agent compatibility
 
 This skill works with OpenCode (`@victoriametrics-cardinality-analysis`) and Claude Code.
-Phase 1 uses parallel helper tasks that may run as subagents when the agent supports delegation (OpenCode `subagent`, Claude `Agent`); otherwise run them sequentially. Use MCP tools when available and permitted, otherwise fall back to HTTP/curl.
+Phase 1 uses parallel helper tasks that may run as subagents when the agent supports delegation (OpenCode `subagent`, Claude `Agent`); otherwise run them sequentially.
+Discover the available MCP tools and their actual argument and response schemas; do not guess tool names or copy HTTP parameters into MCP calls. Prefer a permitted tool for the requested operation and target. HTTP examples below apply only to HTTP.
+Use configured HTTP only when the matching MCP operation is absent or unavailable, never to bypass a permission or authentication denial or an empty result. Keep the same environment, backend instance, and tenant when switching transports; never extract MCP credentials or send credentials to guessed hosts.
+
+For backend access, `permission.rejected` or `Permission denied` means stop that operation, not missing capability. Do not retry via another command, execute/fetch, webfetch, another agent, or the parent. Report the denial and request scoped approval; a rejected compound command does not establish permission for any of its backend operations.
+Bound queries by the supplied scope, time window, and limits. Report missing capability, denied access, failed requests, and successful empty results separately. Analysis does not authorize applying recommendations.
 
 The goal is to find the highest-impact optimization opportunities — metrics nobody queries, labels that
 explode cardinality for no monitoring value, and patterns that indicate data hygiene problems (error
@@ -42,12 +48,11 @@ Uses the same env vars as the `victoriametrics-query` skill:
 
 ### Phase 1: Data Collection
 
-Spawn 3 helper tasks in a **single response** to collect data in parallel when the agent supports
-delegation; otherwise run them sequentially. Each helper prompt must include the curl auth pattern,
-transport choice (MCP or HTTP), and environment variable references above.
+Dispatch the 3 helper tasks together when delegation is supported and permitted; otherwise run them sequentially. Role names below describe tasks, not registered agent profiles. Use an existing suitable agent with its own permissions.
+Pass each helper its task instructions, transport policy above, available operations and schemas, target/tenant, incident time range, query scope, limits, budget, and output format explicitly. HTTP auth and URL references are needed only for HTTP operations.
+Snapshot usage statistics before any diagnostic queries that fetch samples and could update the tracker. Cached queries may not update it, so zero recorded fetches are not proof of absence of use.
 
-If the user specified a scope (job, namespace, metric prefix), pass it as `match[]` parameter to
-TSDB status queries and as series selectors to label queries.
+If the user specified a scope (job, namespace, metric prefix), apply it to TSDB and label queries using the actual tool schema (`match[]` for HTTP selectors; MCP may use `match`). Use the supplied incident dates rather than today's defaults for historical investigations.
 
 ---
 
@@ -113,8 +118,7 @@ curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -s \
   jq '{statsCollectedSince: .statsCollectedSince, statsCollectedRecordsTotal: .statsCollectedRecordsTotal}'
 ```
 
-If the endpoint returns an error, `storage.trackMetricNamesStats` may not be enabled on vmstorage.
-Note this in the return and proceed — the analysis can still work with TSDB status data alone.
+If the operation fails, distinguish denied access, a missing endpoint, a failed request, and a disabled tracker; an error alone does not identify the cause. Note the limitation and proceed with available TSDB data without claiming metrics are unused.
 
 **Query 4 — Cross-check: are "unused" metrics referenced in alerting rules?**
 
@@ -129,7 +133,7 @@ is a candidate only for rule review — do not recommend dropping it without con
 **Return**: Unused metrics with cross-reference against alert rules. Flag each as:
 
 - **candidate**: never queried AND not in any rule; still verify with dashboards/SLIs before dropping
-- **used by rules only**: never queried by dashboards but referenced in rules — verify intent
+- **referenced by rules**: zero recorded fetches but referenced in rules — verify intent; the tracker cannot identify dashboard use exhaustively
 - **rarely used**: low query count, may be accessed infrequently (e.g., monthly reports)
 
 ---
@@ -264,11 +268,11 @@ Use this template:
 
 | Metric | Series | Last Queried | In Alert Rules | Action |
 |--------|--------|-------------|----------------|--------|
-| ... | ... | never | no | Drop |
+| ... | ... | no recorded fetches | no | Verify consumers; drop only if approved |
 | ... | ... | never | yes — verify | Check rule |
 
 <details>
-<summary>Relabeling config to drop unused metrics</summary>
+<summary>Proposed relabeling config for confirmed unnecessary metrics; approval required</summary>
 
 ​```yaml
 # Add to vmagent metric_relabel_configs (VMServiceScrape or global)
@@ -349,14 +353,14 @@ metric_relabel_configs:
 ### Summary
 | Category | Est. Series Saved | % of Total | Effort |
 |----------|------------------|-----------|--------|
-| Drop unused metrics | X | Y% | Low — relabeling only |
+| Drop approved unnecessary metrics | X | Y% | Low — relabeling after consumer checks |
 | Drop bad labels | X | Y% | Low — labeldrop |
 | Stream aggregation | X | Y% | Medium — new config |
 | Histogram reduction | X | Y% | Low — bucket filtering |
 | **Total** | **X** | **Y%** | |
 
 ### Implementation Priority
-1. **[Low effort]** Drop unused metrics — pure relabeling, no data loss risk
+1. **[Low effort]** Verify cleanup candidates, then drop only approved unnecessary metrics — this stops new ingestion and creates gaps that rollback cannot recover
 2. **[Low effort]** Drop labels that should never be in metrics (IDs, messages, SQL)
 3. **[Medium effort]** Stream aggregation for high-cardinality HTTP/app metrics
 4. **[Medium effort]** Histogram bucket reduction

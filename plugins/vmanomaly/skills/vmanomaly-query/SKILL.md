@@ -3,6 +3,7 @@ name: vmanomaly-query
 description: >
   Operate VictoriaMetrics Anomaly Detection (vmanomaly) through its HTTP API. Use when checking health, versions, persisted-state compatibility, self-monitoring metrics, available models, model schemas, server queries, time-series characteristics, shared autotune, or asynchronous detection tasks. Also use for generating and validating vmanomaly configuration or alert-rule YAML. Triggers on vmanomaly API, anomaly tasks, model validation, model schema, compatibility, Temporal Envelope, time-series profiling, and vmanomaly autotune.
 compatibility: OpenCode, Claude Code
+allowed-tools: Bash(curl:*), Bash(jq:*)
 ---
 
 # vmanomaly API
@@ -10,7 +11,12 @@ compatibility: OpenCode, Claude Code
 ## Agent compatibility
 
 This skill works with OpenCode (`@vmanomaly-query`) and Claude Code.
-Use MCP tools when available and permitted, otherwise fall back to HTTP/curl against `$VM_ANOMALY_URL`.
+Discover the available MCP tools and their actual argument and response schemas; do not guess tool names or copy HTTP parameters into MCP calls. Prefer a permitted tool for the requested operation and target. HTTP examples below apply only to HTTP.
+Use configured HTTP only when the matching MCP operation is absent or unavailable, never to bypass a permission or authentication denial or an empty result. Keep the same environment, backend instance, and tenant when switching transports; never extract MCP credentials or send credentials to guessed hosts.
+
+For backend access, `permission.rejected` or `Permission denied` means stop that operation, not missing capability. Do not retry via another command, execute/fetch, webfetch, another agent, or the parent. Report the denial and request scoped approval; a rejected compound command does not establish permission for any of its backend operations.
+Bound queries by the supplied scope, time window, and limits. Report missing capability, denied access, failed requests, and successful empty results separately. Before retrying a mutation with an unknown outcome, verify its state and obtain approval; do not blindly replay it.
+Before creating autotune or detection tasks, disclose the query scope, time range, and resource budget and obtain explicit approval. Applying configuration, deleting persisted state, and canceling or deleting tasks also require explicit approval.
 
 Operate a running vmanomaly v1.30+ instance through bounded, explicit API calls. Prefer live schemas and server responses over static assumptions.
 
@@ -31,7 +37,7 @@ curl -q --config "$VM_CURL_CONFIG" -s \
   "$VM_ANOMALY_URL/health" | jq .
 ```
 
-Never print or create the credential file. Ask for `VM_ANOMALY_URL` when it is unset.
+Never print or create the credential file. Ask for `VM_ANOMALY_URL` only when HTTP is needed and no matching permitted MCP operation is available.
 
 ## Start with a runtime preflight
 
@@ -93,7 +99,7 @@ curl -q --config "$VM_CURL_CONFIG" -s \
   "$VM_ANOMALY_URL/api/v1/config/validate" | jq .
 ```
 
-Validation does not apply or reload a configuration. The `/api/v1/config/validate` endpoint is read-only with respect to the running deployment, but validation of user-provided YAML may still be considered a write against the user's intent — confirm the config before submitting it.
+Validation does not apply or reload a configuration. The `/api/v1/config/validate` endpoint is read-only with respect to the running deployment but consumes server resources. Confirm the user-provided configuration and intended target before submitting it, especially if the YAML contains sensitive values.
 
 ## Inspect the running server
 
@@ -170,9 +176,9 @@ curl -q --config "$VM_CURL_CONFIG" -s \
   "$VM_ANOMALY_URL/api/v1/autotune/tasks/<task_id>" | jq .
 ```
 
-Treat `done`, `error`, and `canceled` as terminal. On `done`, apply `result_data.data.modelConfig` directly, validate it, and test it. Do not replace this concrete one-time recommendation with `class: auto`; the deployable auto wrapper has a different lifecycle. Business policies in this result remain model-spec fields for task/UI compatibility; move them to the attached query only when constructing a v1.30.2+ deployment configuration.
+Treat `done`, `error`, and `canceled` as terminal. On `done`, use the concrete `result_data.data.modelConfig` for validation and approved testing; deployment needs separate approval. Do not replace this concrete one-time recommendation with `class: auto`; the deployable auto wrapper has a different lifecycle. Business policies in this result remain model-spec fields for task/UI compatibility; move them to the attached query only when constructing a v1.30.2+ deployment configuration.
 
-Autotune and detection tasks consume server resources. Tell the user the trial/time budget before creating a task. Use DELETE only when the user asks to cancel:
+Autotune and detection tasks consume server resources. Obtain explicit approval for the query scope, time range, and trial/time budget before creating either kind of task. Use DELETE only when the user asks to cancel:
 
 ```bash
 curl -q --config "$VM_CURL_CONFIG" -s \
@@ -188,7 +194,7 @@ curl -q --config "$VM_CURL_CONFIG" -s \
   "$VM_ANOMALY_URL/api/v1/anomaly_detection/limits" | jq .
 ```
 
-Create a task only after validating `model_spec`. The v1.30.3 task contract requires an explicit `datasource_url`; reuse the configured datasource URL when appropriate:
+Create a task only after validating `model_spec` and obtaining approval for the bounded run. The v1.30.3 task contract requires an explicit `datasource_url`; reuse the configured datasource URL when appropriate:
 
 ```bash
 DATASOURCE_URL='<configured-or-explicit-datasource-url>'

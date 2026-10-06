@@ -9,6 +9,7 @@ description: >
   "what metrics can I drop", "metric optimization", "wasted ingestion", or wants to reduce
   VictoriaMetrics resource consumption by eliminating unnecessary metrics.
 compatibility: OpenCode, Claude Code
+allowed-tools: Bash(curl:*), Bash(jq:*)
 ---
 
 # Find Unused Metrics in VictoriaMetrics
@@ -16,7 +17,11 @@ compatibility: OpenCode, Claude Code
 ## Agent compatibility
 
 This skill works with OpenCode (`@victoriametrics-unused-metrics-analysis`) and Claude Code.
-Use MCP tools when available and permitted, otherwise fall back to HTTP/curl against `$VM_METRICS_URL`.
+Discover the available MCP tools and their actual argument and response schemas; do not guess tool names or copy HTTP parameters into MCP calls. Prefer a permitted tool for the requested operation and target. HTTP examples below apply only to HTTP.
+Use configured HTTP only when the matching MCP operation is absent or unavailable, never to bypass a permission or authentication denial or an empty result. Keep the same environment, backend instance, and tenant when switching transports; never extract MCP credentials or send credentials to guessed hosts.
+
+For backend access, `permission.rejected` or `Permission denied` means stop that operation, not missing capability. Do not retry via another command, execute/fetch, webfetch, another agent, or the parent. Report the denial and request scoped approval; a rejected compound command does not establish permission for any of its backend operations.
+Bound queries by the supplied scope, time window, and limits. Report missing capability, denied access, failed requests, and successful empty results separately. Analysis does not authorize applying recommendations.
 
 Identify metrics that are being ingested but never (or rarely) queried, then recommend concrete actions to stop wasting storage and ingestion resources.
 
@@ -35,7 +40,7 @@ Uses the same env vars as the `victoriametrics-query` skill:
 
 ## How It Works
 
-VictoriaMetrics tracks how many times each metric name is fetched during queries, and when it was last fetched. This is done via the `metric_names_stats` API, available since v1.113.0. By comparing what's ingested against what's actually queried, you can find metrics that nobody uses and safely drop them.
+VictoriaMetrics tracks how many times each metric name is fetched during queries, and when it was last fetched. This is done via the `metric_names_stats` API, available since v1.113.0. Comparing ingestion with observed fetches identifies cleanup candidates, not proof that a metric is safe to drop. Check collection coverage and all consumers before proposing removal.
 
 The workflow has three phases:
 
@@ -54,7 +59,7 @@ curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -s \
   "$VM_METRICS_URL/api/v1/status/metric_names_stats?limit=3" | jq .
 ```
 
-**If the response has an empty `records` array or returns an error**, the feature is not active. Guide the user:
+**If the response has an empty `records` array**, there is not enough evidence to continue. An error may instead indicate denied access, a missing endpoint, or a failed request; report it accurately rather than declaring the tracker disabled. Guide the user to check:
 
 > The metric names stats tracker is not returning data. This can happen if:
 >
@@ -77,7 +82,9 @@ Stop here if the feature is not available. The rest of the workflow depends on i
 
 ### Step 1: Get all never-queried metric names
 
-These are metrics with `queryRequests: 0` — tracked but never fetched by any query, dashboard, alert rule, or recording rule.
+Capture never-queried, rarely-queried, and total-name statistics before running sample-fetching diagnostics such as `count()`. Reuse these snapshots in Steps 3–4: diagnostic queries themselves can update the tracker. Cached queries may not update it, so zero observed fetches do not prove absence of dashboard or rule use.
+
+These are metrics with zero recorded fetches in the collection window. Inspect the actual response schema (current versions use `queryRequestsCount`); this is not an exhaustive inventory of dashboards, alert rules, or recording rules.
 
 Use a high limit to capture all of them — the default 1000 is often not enough:
 
@@ -184,7 +191,7 @@ Present findings in this format:
 #### [Category Name] — [N] metrics, ~[M] active series
 | Metric Pattern | Series Count | Recommendation |
 |---|---|---|
-| `prefix_*` | ~X,000 | Drop via relabel |
+| `<confirmed metric names>` | ~X,000 | Verify consumers; drop only approved candidates |
 
 ### Rarely-Queried Metrics
 [Similar table, but note last query time from lastRequestTimestamp]
@@ -193,7 +200,7 @@ Present findings in this format:
 [Brief list of prefix groups with 0 active series — these are from decommissioned sources and will expire with retention]
 
 ### Estimated Impact
-- Dropping all never-queried active metrics would eliminate ~[N] series ([X]% of total active)
+- Removing all candidates would potentially eliminate ~[N] series ([X]% of total active); report savings separately for the approved subset
 - Top 3 categories alone account for ~[M] series
 ```
 
@@ -201,7 +208,9 @@ Present findings in this format:
 
 For each category of unused metrics, suggest one of these actions:
 
-**1. Drop at vmagent via `metric_relabel_configs`** (preferred for metrics you're confident are unused):
+**1. Drop at vmagent via `metric_relabel_configs`** (only for confirmed unnecessary metrics, with explicit approval):
+
+The regexes below are templates. Prefer exact approved metric names; use a broad prefix only after confirming every matching metric is unnecessary. Dropping stops new ingestion and creates gaps that a later rollback cannot recover.
 
 ```yaml
 # Add to vmagent scrape config or VMServiceScrape/VMPodScrape
@@ -233,7 +242,7 @@ metric_relabel_configs:
 Always communicate these caveats:
 
 - **Start with a test period**: Before permanently dropping metrics, use `drop` rules on a staging vmagent to verify nothing breaks.
-- **Check alert rules, recording rules, dashboards, and SLIs**: Metrics queried only by recording rules or alerts may show low `queryRequests` counts but are still essential. Cross-reference with `api/v1/rules` output and dashboard definitions before dropping.
+- **Check alert rules, recording rules, dashboards, and SLIs**: Metrics queried only by recording rules or alerts may show low recorded fetch counts but are still essential. Cross-reference with `api/v1/rules` output and dashboard definitions before dropping.
 - **Dashboard queries aren't tracked until viewed**: A metric used in a Grafana dashboard that nobody opened during the collection window will appear as "unused." Consider querying Grafana's API for dashboard definitions to cross-reference.
 - **Some metrics are queried seasonally**: Monthly or quarterly reports will show low query counts. The longer the collection window, the more reliable the results.
 - **Never drop `up` or meta-metrics**: Metrics like `up`, `scrape_duration_seconds`, `scrape_samples_scraped` are essential for monitoring health even if rarely queried directly.

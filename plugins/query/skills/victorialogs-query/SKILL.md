@@ -6,6 +6,7 @@ description: >
   Triggers on: log queries, LogsQL, log search, log stats, field discovery, stream discovery,
   log facets, log hits, log field values.
 compatibility: OpenCode, Claude Code
+allowed-tools: Bash(curl:*), Bash(jq:*), Bash(date:*)
 ---
 
 # VictoriaLogs Query
@@ -15,7 +16,11 @@ Query VictoriaLogs HTTP API via curl or an MCP server. Covers log search, stats 
 ## Agent compatibility
 
 This skill works with OpenCode (`@victorialogs-query`) and Claude Code.
-If a VictoriaLogs MCP server is available and the requested operation is covered by a permitted tool, use the MCP tool first. Otherwise fall back to HTTP/curl against `$VM_LOGS_URL`. Do not switch transports because a query returns no log lines.
+Discover the available MCP tools and their actual argument and response schemas; do not guess tool names or copy HTTP parameters into MCP calls. Prefer a permitted tool for the requested operation and target. HTTP examples below apply only to HTTP.
+Use configured HTTP only when the matching MCP operation is absent or unavailable, never to bypass a permission or authentication denial or an empty result. Keep the same environment, backend instance, and tenant when switching transports; never extract MCP credentials or send credentials to guessed hosts.
+
+For backend access, `permission.rejected` or `Permission denied` means stop that operation, not missing capability. Do not retry via another command, execute/fetch, webfetch, another agent, or the parent. Report the denial and request scoped approval; a rejected compound command does not establish permission for any of its backend operations.
+Bound queries by the supplied scope, time window, and limits. Report missing capability, denied access, failed requests, and successful empty results separately. Before retrying a mutation with an unknown outcome, verify its state and obtain approval; do not blindly replay it.
 
 ## Environment
 
@@ -40,8 +45,8 @@ When `VM_CURL_CONFIG` is unset, curl reads `/dev/null` and sends no auth header.
 
 ## Critical Rules
 
-- ALWAYS pass `start` on ALL VictoriaLogs endpoints — omitting it scans ALL stored data (extremely expensive). Not technically required by the API, but omitting it is almost never what you want.
-- `stats_query` uses `time` (ALWAYS pass it explicitly; do not rely on a default), `stats_query_range` uses `start`/`end`/`step`
+- Always bound the log window. Use explicit `start`/`end` for discovery and range operations. For instant `stats_query`, use explicit `time` plus a bounded `_time:` filter; `time` alone does not bound the scanned logs.
+- HTTP `stats_query` also accepts `start`/`end` to bound aggregation, not as replacements for `time`. MCP instant stats may expose only `time`, so follow the tool schema and bound the query with `_time:`. `stats_query_range` uses `start`/`end`/`step`.
 - `step` is required for `hits` endpoint
 - `/select/logsql/query` returns JSON Lines (one JSON object per line), NOT a JSON array
 - LogsQL queries with special characters MUST be URL-encoded (use `--data-urlencode` for POST)
@@ -70,13 +75,13 @@ Response: JSON Lines (one JSON object per line). Pipe through `jq -s .` to colle
 ### Stats Query (Instant)
 
 ```bash
-# Count errors by level at a point in time
+# Count logs by level over the hour ending at the supplied evaluation time
 curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -s \
-  --data-urlencode 'query={namespace="myapp"} | stats by (level) count() as total' \
+  --data-urlencode 'query=_time:1h {namespace="myapp"} | stats by (level) count() as total' \
   "$VM_LOGS_URL/select/logsql/stats_query?time=2026-03-07T09:00:00Z" | jq .
 ```
 
-Parameters: `query` (required, must contain `| stats` pipe), `time` (required, RFC3339), `start` (optional, alternative to `time`).
+Parameters: `query` (required, must contain `| stats` pipe), `time` (explicit evaluation timestamp), `start`/`end` (optional HTTP aggregation bounds). Adjust the example's one-hour window to the supplied incident scope.
 
 Response: Prometheus-compatible JSON format.
 
@@ -211,7 +216,7 @@ Common mistakes:
 
 ## Timestamp Format
 
-All times use RFC3339 format: `2026-03-07T09:00:00Z`. Unix timestamps are NOT supported by VictoriaLogs.
+Use RFC3339 in these examples: `2026-03-07T09:00:00Z`. HTTP also accepts other [documented timestamp formats](https://docs.victoriametrics.com/victoriametrics/single-server-victoriametrics/#timestamp-formats), including Unix timestamps; MCP accepts only the types in its actual tool schema.
 
 ## Response Parsing (jq)
 

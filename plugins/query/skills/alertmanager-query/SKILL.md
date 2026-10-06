@@ -5,6 +5,7 @@ description: >
   or checking alert inhibition state. Triggers on: alertmanager, silences, silence alerts, alert filters,
   alert inhibition, alertmanager API, create silence, delete silence.
 compatibility: OpenCode, Claude Code
+allowed-tools: Bash(curl:*), Bash(jq:*), Bash(date:*)
 ---
 
 # AlertManager Query (API v2)
@@ -14,15 +15,18 @@ Query Prometheus-compatible AlertManager HTTP API v2 directly via curl. Covers a
 ## Agent compatibility
 
 This skill works with OpenCode (`@alertmanager-query`) and Claude Code.
-Use whichever transport is available: direct HTTP/curl (always), or MCP when an AlertManager-compatible
-server exposes the matching tools. Prefer MCP only when it targets the same AlertManager instance.
+Discover the available MCP tools and their actual argument and response schemas; do not guess tool names or copy HTTP parameters into MCP calls. Prefer a permitted tool for the requested operation and target. HTTP examples below apply only to HTTP.
+Use configured HTTP only when the matching MCP operation is absent or unavailable, never to bypass a permission or authentication denial or an empty result. Keep the same environment, backend instance, and tenant when switching transports; never extract MCP credentials or send credentials to guessed hosts.
+
+For backend access, `permission.rejected` or `Permission denied` means stop that operation, not missing capability. Do not retry via another command, execute/fetch, webfetch, another agent, or the parent. Report the denial and request scoped approval; a rejected compound command does not establish permission for any of its backend operations.
+Bound queries by the supplied scope, time window, and limits. Report missing capability, denied access, failed requests, and successful empty results separately. Before retrying a mutation with an unknown outcome, verify its state and obtain approval; do not blindly replay it.
 
 ## Availability Warning
 
-AlertManager runs as an in-cluster pod and may be unavailable (crashloop, DNS failure, not deployed locally). Always check connectivity first. When AlertManager is down, fall back to VictoriaMetrics for alert data:
+AlertManager may be unavailable (crashloop, DNS failure, not deployed locally). Check configured HTTP connectivity or use a permitted MCP read operation. If AlertManager is unavailable, independently query VM alerts when configured and permitted; do not treat them as silence/inhibition data or bypass an AlertManager access denial:
 
 ```bash
-# Fallback: firing/pending alerts from VictoriaMetrics (always available)
+# Independent firing/pending alerts from VictoriaMetrics, when HTTP is configured and permitted
 curl -q --config "${VM_CURL_CONFIG:-/dev/null}" -s \
   "$VM_METRICS_URL/api/v1/alerts" | jq '.data.alerts[]'
 ```
